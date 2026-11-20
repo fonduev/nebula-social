@@ -69,7 +69,7 @@ public final class GenerateWardrobeAssets {
         generated("ring_prism", "Prism Ring", "ring_thin", "rainbow", "prismglass"),
         generated("ring_twin", "Twin Ring", "ring_double", "amethyst", "deepsea"),
         generated("crown_spikes", "Spike Crown", "crown_spikes", "gold", "obsidian"),
-        generated("orbit_halo", "Orbit Halo", "orbit_orbs", "nebula", "radiance"),
+        generated("orbit_halo", "Orbit Halo", "orbit_orbs", "planets", "radiance"),
 
         // Auras: el wardrobe no tenia ninguna.
         generated("aura_ring", "Aura Ring", "aura_ring", "huewheel", "emerald"),
@@ -78,21 +78,22 @@ public final class GenerateWardrobeAssets {
         generated("aura_shards", "Crystal Aura", "aura_shards", "sakura", "petalstorm"),
 
         // Capas: un diseno distinto por capa.
-        cape("cape_galaxy", "Galaxy Cape", "galaxy", false),
+        // Cada capa espacial es una escena distinta, no estrellas con otro color.
+        cape("cape_galaxy", "Ringed Planet Cape", "ringed", false),
         cape("cape_aurora", "Aurora Cape", "aurora", false),
         cape("cape_ember", "Ember Cape", "ember", false),
         cape("cape_frost", "Frost Cape", "frost", false),
         cape("cape_cyber", "Cyber Grid Cape", "cyber", false),
-        cape("cape_voidrune", "Void Rune Cape", "void", false),
-        cape("cape_starfall", "Starfall Cape", "starfall", false),
+        cape("cape_voidrune", "Black Hole Cape", "blackhole", false),
+        cape("cape_starfall", "Comet Trail Cape", "comet", false),
         cape("cape_solar", "Solar Flare Cape", "solar", false),
         cape("cape_hex", "Hex Mesh Cape", "hex", false),
-        cape("cape_cloud", "Cloud Nebula Cape", "cloud", false),
+        cape("cape_cloud", "Nebula Pillar Cape", "pillars", false),
         cape("cape_crest", "Crimson Crest Cape", "crest", false),
         cape("cape_circuit", "Circuit Cape", "circuit", false),
         cape("cape_aurora_drift", "Aurora Drift Cape", "aurora_drift", true),
         cape("cape_ember_flow", "Ember Flow Cape", "ember_flow", true),
-        cape("cape_star_twinkle", "Starlight Twinkle Cape", "star_twinkle", true),
+        cape("cape_star_twinkle", "Constellation Cape", "constellation", true),
         cape("cape_holo_shift", "Holo Shift Cape", "holo_shift", true),
     };
 
@@ -627,13 +628,262 @@ public final class GenerateWardrobeAssets {
         };
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Escenas de capa: cada tema dibuja un motivo distinto, no un campo de estrellas retintado.
+    // ---------------------------------------------------------------------------------------
+
+    private static void drawStarfield(Graphics2D g, int width, int height, Random random, int count) {
+        for (int i = 0; i < count; i++) {
+            int alpha = 40 + random.nextInt(170);
+            g.setColor(new Color(255, 255, 255, alpha));
+            int size = random.nextInt(11) == 0 ? 3 : 1;
+            g.fillOval(random.nextInt(width), random.nextInt(height), size, size);
+        }
+    }
+
+    /** Planeta gigante con bandas, anillo cruzandolo y dos lunas. */
+    private static void sceneRingedPlanet(Graphics2D g, int width, int height, Random random) {
+        drawStarfield(g, width, height, random, 230);
+        int cx = width / 2;
+        int cy = (int) (height * 0.55);
+        int rad = (int) (height * 0.4);
+        java.awt.geom.Ellipse2D ring = new java.awt.geom.Ellipse2D.Double(
+            cx - rad * 1.7, cy - rad * 0.32, rad * 3.4, rad * 0.64);
+
+        g.setStroke(new BasicStroke(Math.max(5f, rad * 0.08f), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(226, 198, 148, 120));
+        g.draw(ring);
+        g.setStroke(new BasicStroke(Math.max(2f, rad * 0.03f)));
+        g.setColor(new Color(255, 238, 205, 80));
+        g.draw(new java.awt.geom.Ellipse2D.Double(cx - rad * 1.9, cy - rad * 0.36, rad * 3.8, rad * 0.72));
+
+        java.awt.Shape clipBefore = g.getClip();
+        g.setClip(new java.awt.geom.Ellipse2D.Double(cx - rad, cy - rad, rad * 2.0, rad * 2.0));
+        Color[] bands = {
+            new Color(184, 122, 68), new Color(230, 182, 129), new Color(141, 83, 48),
+            new Color(243, 221, 180), new Color(196, 128, 74),
+        };
+        int y = cy - rad;
+        for (int i = 0; y < cy + rad; i++) {
+            int band = 7 + (i % 4) * 5;
+            g.setColor(bands[i % bands.length]);
+            g.fillRect(cx - rad, y, rad * 2, band);
+            y += band;
+        }
+        // Noche y brillo cenital: le da volumen de esfera.
+        g.setPaint(new java.awt.GradientPaint((float) (cx - rad), 0f, new Color(0, 0, 0, 0),
+            (float) (cx + rad), 0f, new Color(3, 3, 12, 225)));
+        g.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+        g.setPaint(new java.awt.GradientPaint(0f, (float) (cy - rad), new Color(255, 250, 225, 80),
+            0f, (float) (cy + rad), new Color(255, 250, 225, 0)));
+        g.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+        g.setClip(clipBefore);
+
+        // Mitad cercana del anillo, delante del planeta.
+        g.setClip(new java.awt.Rectangle(0, cy + (int) (rad * 0.04), width, height));
+        g.setStroke(new BasicStroke(Math.max(5f, rad * 0.08f), BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
+        g.setColor(new Color(226, 198, 148, 180));
+        g.draw(ring);
+        g.setClip(clipBefore);
+
+        g.setColor(new Color(214, 220, 235));
+        g.fillOval((int) (cx + rad * 1.12), (int) (cy - rad * 0.98), rad / 5, rad / 5);
+        g.setColor(new Color(176, 186, 206));
+        g.fillOval((int) (cx - rad * 1.42), (int) (cy + rad * 0.6), rad / 7, rad / 7);
+    }
+
+    /** Cometa: nucleo brillante y cola curva de gas y polvo. */
+    private static void sceneComet(Graphics2D g, int width, int height, double phase, Random random) {
+        drawStarfield(g, width, height, random, 200);
+        double headX = width * 0.26;
+        double headY = height * 0.3;
+        double wobble = Math.sin(phase * Math.PI * 2) * height * 0.03;
+
+        // Dos colas: la ionica azul (recta y fina) y la de polvo (ancha, calida y desviada).
+        for (int pass = 0; pass < 2; pass++) {
+            boolean dust = pass == 1;
+            for (int i = 0; i < 80; i++) {
+                double f = i / 79.0;
+                double endX = headX + width * (dust ? 0.66 : 0.82) * f;
+                double endY = headY + height * (dust ? 0.9 : 0.78) * f
+                    + Math.sin(f * 5.0 + phase * 6.28 + pass * 1.7) * (dust ? 22 : 10) + wobble;
+                double jitter = (random.nextDouble() - 0.5) * (dust ? 8 : 3);
+                g.setStroke(new BasicStroke((float) ((dust ? 13 : 15) * (1 - f)) + 1f,
+                    BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g.setColor(dust
+                    ? new Color(255, 226, 190, (int) (60 * (1 - f)))
+                    : new Color(150, 220, 255, (int) (85 * (1 - f))));
+                g.draw(new java.awt.geom.Line2D.Double(
+                    headX + jitter, headY + jitter, endX + jitter, endY + jitter));
+                if (!dust) {
+                    g.setStroke(new BasicStroke((float) (5 * (1 - f)) + 1f,
+                        BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.setColor(new Color(255, 250, 235, (int) (110 * (1 - f))));
+                    g.draw(new java.awt.geom.Line2D.Double(headX, headY, endX, endY));
+                }
+            }
+        }
+        // Halos del nucleo, de fuera hacia dentro.
+        for (int i = 14; i >= 0; i--) {
+            int size = 8 + i * 5;
+            g.setColor(new Color(180, 240, 255, 8 + i * 2));
+            g.fillOval((int) headX - size / 2, (int) headY - size / 2, size, size);
+        }
+        g.setColor(new Color(255, 255, 255, 250));
+        g.fillOval((int) headX - 4, (int) headY - 4, 8, 8);
+    }
+
+    /** Constelacion: estrellas unidas por lineas sobre retícula de carta estelar. */
+    private static void sceneConstellation(Graphics2D g, int width, int height, double phase, Random random) {
+        drawStarfield(g, width, height, random, 170);
+        g.setColor(new Color(120, 180, 255, 26));
+        for (int i = 1; i < 6; i++) {
+            g.drawLine(width * i / 6, 0, width * i / 6, height);
+        }
+        for (int i = 1; i < 4; i++) {
+            g.drawLine(0, height * i / 4, width, height * i / 4);
+        }
+
+        double[][] stars = {
+            {0.14, 0.68}, {0.28, 0.42}, {0.41, 0.60}, {0.55, 0.32}, {0.68, 0.54}, {0.82, 0.28},
+        };
+        g.setStroke(new BasicStroke(1.6f));
+        g.setColor(new Color(150, 200, 255, 120));
+        for (int i = 0; i + 1 < stars.length; i++) {
+            g.draw(new java.awt.geom.Line2D.Double(
+                stars[i][0] * width, stars[i][1] * height, stars[i + 1][0] * width, stars[i + 1][1] * height));
+        }
+        for (int i = 0; i < stars.length; i++) {
+            double pulse = 0.55 + 0.45 * Math.sin(phase * Math.PI * 2 + i * 1.1);
+            int x = (int) (stars[i][0] * width);
+            int y = (int) (stars[i][1] * height);
+            int size = (int) (5 + 9 * pulse);
+            g.setColor(new Color(150, 205, 255, (int) (45 + 90 * pulse)));
+            g.fillOval(x - size, y - size, size * 2, size * 2);
+            g.setColor(new Color(255, 255, 255, (int) (150 + 100 * pulse)));
+            g.fillOval(x - size / 3, y - size / 3, size / 1.5 > 1 ? (int) (size / 1.5) : 2, size / 1.5 > 1 ? (int) (size / 1.5) : 2);
+        }
+    }
+
+    /** Agujero negro: horizonte oscuro, disco de acrecion girando y anillos de lente. */
+    private static void sceneBlackHole(Graphics2D g, int width, int height, double phase, Random random) {
+        drawStarfield(g, width, height, random, 210);
+        int cx = width / 2;
+        int cy = (int) (height * 0.5);
+        int rad = (int) (height * 0.26);
+
+        for (int i = 14; i >= 0; i--) {
+            double f = i / 14.0;
+            double rx = rad * (1.45 + f * 2.3);
+            double ry = rad * (0.3 + f * 0.5);
+            int alpha = (int) (25 + 120 * (1 - f));
+            int rgb = Color.HSBtoRGB((float) ((0.02 + 0.09 * (1 - f) + phase * 0.03) % 1.0), 0.92f, 1f);
+            g.setStroke(new BasicStroke(2f + (float) (7 * (1 - f))));
+            g.setColor(new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, Math.min(230, alpha)));
+            g.draw(new java.awt.geom.Ellipse2D.Double(cx - rx, cy - ry, rx * 2, ry * 2));
+        }
+        // Halo por delante del disco.
+        for (int i = 16; i >= 0; i--) {
+            int size = rad * 2 + i * 6;
+            g.setColor(new Color(255, 190, 120, 5));
+            g.fillOval(cx - size / 2, cy - size / 2, size, size);
+        }
+        g.setColor(new Color(2, 2, 6, 255));
+        g.fillOval(cx - rad, cy - rad, rad * 2, rad * 2);
+        g.setStroke(new BasicStroke(3f));
+        g.setColor(new Color(255, 220, 170, 210));
+        g.draw(new java.awt.geom.Ellipse2D.Double(cx - rad, cy - rad, rad * 2, rad * 2));
+    }
+
+    /** Pilares de polvo de nebulosa, cada columna con su propio color y grosor. */
+    private static void scenePillars(Graphics2D g, int width, int height, Random random) {
+        drawStarfield(g, width, height, random, 250);
+        for (int col = 0; col < 4; col++) {
+            double baseX = width * (0.16 + col * 0.22);
+            double wide = width * (0.055 + 0.018 * ((col * 5) % 3));
+            for (int step = 0; step < 110; step++) {
+                double f = step / 109.0;
+                double y = height * (1.0 - f);
+                double sway = Math.sin(f * 4.2 + col * 1.7) * wide * 0.7;
+                int alpha = (int) Math.min(200, 30 + 170 * Math.pow(1 - f, 0.55) * (0.6 + 0.4 * Math.sin(f * 8 + col)));
+                int rgb = Color.HSBtoRGB((float) ((0.74 + 0.13 * Math.sin(f * 3 + col)) % 1.0), 0.62f, 0.95f);
+                g.setColor(new Color((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, alpha));
+                g.fillOval((int) (baseX + sway - wide / 2), (int) y, (int) wide, (int) (height * 0.035));
+            }
+        }
+    }
+
+    /** Aurora: cortinas de luz sobre un horizonte de colinas en silueta. */
+    private static void sceneAurora(Graphics2D g, int width, int height, double phase, Random random) {
+        drawStarfield(g, width, height, random, 150);
+        for (int band = 0; band < 6; band++) {
+            double base = height * (0.16 + band * 0.05);
+            Path2D curtain = new Path2D.Double();
+            for (int x = 0; x <= width; x += 4) {
+                double y = base + Math.sin(x * 0.011 + band * 1.7 + phase * 6.28) * height * 0.07;
+                if (x == 0) curtain.moveTo(x, y); else curtain.lineTo(x, y);
+            }
+            Path2D fill = new Path2D.Double(curtain);
+            fill.lineTo(width, height * 0.72);
+            fill.lineTo(0, height * 0.72);
+            fill.closePath();
+            int hue = band % 2 == 0 ? 0 : 1;
+            g.setPaint(new java.awt.GradientPaint(0f, (float) base,
+                hue == 0 ? new Color(70, 255, 190, 95) : new Color(150, 120, 255, 85),
+                0f, (float) (height * 0.72), new Color(40, 90, 220, 12)));
+            g.fill(fill);
+            g.setStroke(new BasicStroke(2f));
+            g.setColor(new Color(180, 255, 235, 110));
+            g.draw(curtain);
+        }
+        Path2D hills = new Path2D.Double();
+        hills.moveTo(0, height);
+        for (int x = 0; x <= width; x += 6) {
+            hills.lineTo(x, height * 0.87 + Math.sin(x * 0.0055) * height * 0.05 + Math.sin(x * 0.02) * height * 0.018);
+        }
+        hills.lineTo(width, height);
+        hills.closePath();
+        g.setColor(new Color(4, 10, 16, 245));
+        g.fill(hills);
+    }
+
+    /** Dos planetas vecinos con luna: el grande corta el borde de la capa. */
+    private static void scenePlanets(Graphics2D g, int width, int height, Random random) {
+        drawStarfield(g, width, height, random, 190);
+        int bigRad = (int) (height * 0.62);
+        int bcx = (int) (-width * 0.02);
+        int bcy = (int) (height * 0.92);
+        g.setColor(new Color(66, 128, 196));
+        g.fillOval(bcx - bigRad, bcy - bigRad, bigRad * 2, bigRad * 2);
+        for (int i = 0; i < 5; i++) {
+            g.setColor(new Color(96, 170, 226, 70));
+            g.fillOval(bcx - bigRad + 4, bcy - bigRad + 8 + i * 14, bigRad * 2 - 8, 6 + i);
+        }
+        for (int i = 12; i >= 0; i--) {
+            g.setColor(new Color(120, 200, 255, 4));
+            int size = bigRad * 2 + i * 5;
+            g.fillOval(bcx - size / 2, bcy - size / 2, size, size);
+        }
+
+        int smallRad = (int) (height * 0.17);
+        int scx = (int) (width * 0.76);
+        int scy = (int) (height * 0.3);
+        g.setColor(new Color(206, 142, 92));
+        g.fillOval(scx - smallRad, scy - smallRad, smallRad * 2, smallRad * 2);
+        g.setPaint(new java.awt.GradientPaint((float) (scx - smallRad), 0f, new Color(0, 0, 0, 0),
+            (float) (scx + smallRad), 0f, new Color(4, 4, 14, 200)));
+        g.fillOval(scx - smallRad, scy - smallRad, smallRad * 2, smallRad * 2);
+        g.setColor(new Color(226, 230, 240, 220));
+        g.fillOval(scx + smallRad + 6, scy + (int) (smallRad * 0.7), smallRad / 3, smallRad / 3);
+    }
+
     private record Theme(int[] ramp, String gradient, float noise, String deco, float density, int seed) {}
 
     private static Theme theme(String name) {
         return switch (name) {
             case "rainbow" -> new Theme(spectrum(), "horizontal", 0.05f, "sparkle", 0.4f, 11);
             case "solar" -> new Theme(ramp(0x2b0d00, 0xff6a00, 0xffd24a, 0xfff4c2), "radial", 0.15f, "rays", 0.6f, 12);
-            case "aurora" -> new Theme(ramp(0x030b18, 0x0b6b6b, 0x36d6a0, 0x9d7bff, 0x03121a), "vertical", 0.35f, "ribbons", 0.7f, 13);
+            case "aurora" -> new Theme(ramp(0x030b18, 0x0b6b6b, 0x36d6a0, 0x9d7bff, 0x03121a), "vertical", 0.18f, "aurora", 0.7f, 13);
             case "amethyst" -> new Theme(ramp(0x120022, 0x4b1f7a, 0xa26bff, 0xe2ccff), "radial", 0.25f, "sparkle", 0.4f, 14);
             case "gold" -> new Theme(ramp(0x2a1a00, 0x8a5a12, 0xe8b93a, 0xfff0b0), "vertical", 0.12f, "sparkle", 0.5f, 15);
             case "obsidian" -> new Theme(ramp(0x05040a, 0x141126, 0x35305c, 0x8c7dff), "diagonal", 0.22f, "cracks", 0.5f, 16);
@@ -654,7 +904,13 @@ public final class GenerateWardrobeAssets {
             case "circuit" -> new Theme(ramp(0x020c0a, 0x0a3a32, 0x1ad0a0, 0xc8fff0), "diagonal", 0.12f, "traces", 0.7f, 31);
             case "holo" -> new Theme(spectrum(), "horizontal", 0.1f, "scanlines", 0.8f, 32);
             case "huewheel" -> new Theme(spectrum(), "radial", 0.06f, "sparkle", 0.5f, 34);
-            case "aurora_drift" -> new Theme(ramp(0x02060f, 0x0a4a5a, 0x2ad0b0, 0x8a5cff, 0x04121a), "vertical", 0.42f, "ribbons", 0.9f, 35);
+            case "aurora_drift" -> new Theme(ramp(0x02060f, 0x0a4a5a, 0x2ad0b0, 0x8a5cff, 0x04121a), "vertical", 0.2f, "aurora", 0.9f, 35);
+            case "ringed" -> new Theme(ramp(0x02030a, 0x0a0f2a, 0x141a3a), "vertical", 0.18f, "ringed", 0.7f, 45);
+            case "comet" -> new Theme(ramp(0x01020a, 0x081030, 0x141a48), "vertical", 0.2f, "comet", 0.8f, 46);
+            case "constellation" -> new Theme(ramp(0x01030c, 0x081034, 0x10204a), "vertical", 0.18f, "constellation", 0.9f, 47);
+            case "blackhole" -> new Theme(ramp(0x020106, 0x0a0418, 0x180a30), "radial", 0.25f, "blackhole", 0.9f, 48);
+            case "pillars" -> new Theme(ramp(0x05010d, 0x1a0a3a, 0x4a1a6a), "vertical", 0.35f, "pillars", 0.9f, 49);
+            case "planets" -> new Theme(ramp(0x02040c, 0x0a1024, 0x141c3c), "radial", 0.2f, "planets", 0.8f, 50);
             case "ember_flow" -> new Theme(ramp(0x0a0200, 0x4a0f00, 0xc23000, 0xffa62a), "diagonal", 0.5f, "sparks", 0.9f, 36);
             case "star_twinkle" -> new Theme(ramp(0x01020a, 0x0a1440, 0x2a3ac8, 0xdfefff), "radial", 0.45f, "stars", 1.0f, 37);
             case "holo_shift" -> new Theme(spectrum(), "diagonal", 0.12f, "scanlines", 0.6f, 38);
@@ -704,6 +960,13 @@ public final class GenerateWardrobeAssets {
         Random random = new Random(theme.seed() * 31L + 7);
 
         switch (theme.deco()) {
+            case "ringed" -> sceneRingedPlanet(g, width, height, random);
+            case "comet" -> sceneComet(g, width, height, phase, random);
+            case "constellation" -> sceneConstellation(g, width, height, phase, random);
+            case "blackhole" -> sceneBlackHole(g, width, height, phase, random);
+            case "pillars" -> scenePillars(g, width, height, random);
+            case "aurora" -> sceneAurora(g, width, height, phase, random);
+            case "planets" -> scenePlanets(g, width, height, random);
             case "stars" -> {
                 int count = (int) (120 * theme.density());
                 for (int i = 0; i < count; i++) {
