@@ -1,0 +1,23 @@
+# Blueprint de Render: publica el backend de Nebula Social en una URL https publica.
+# Plan free: sin tarjeta, pero la instancia se duerme tras 15 min sin trafico
+# (la primera peticion despues tarda ~40 s en despertar).
+services:
+  - type: web
+    name: nebula-social
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      # Postgres de Neon (con ?sslmode=require). Se pega en el panel de Render.
+      - key: DATABASE_URL
+        sync: false
+      # Secreto HMAC compartido con el launcher premium (opcional).
+      - key: LAUNCHER_HMAC_SECRET
+        sync: false
+      # La pagina /link se construye sola desde RENDER_EXTERNAL_URL.
+      # Sin proveedor de correo, el codigo de verificacion vuelve en la respuesta.
+      - key: DEV_ECHO_VERIFY_CODE
+        value: "1"
