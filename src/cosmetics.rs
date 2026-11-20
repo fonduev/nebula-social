@@ -41,6 +41,8 @@ struct CatalogEntry {
     model: Option<String>,
     animation: Option<String>,
     texture: String,
+    /// Pila de frames de una capa animada (`<slug>.100ms.sheet`).
+    sheet: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -149,6 +151,19 @@ fn load_catalog(root: &FsPath) -> Catalog {
             ));
         }
         files.push((format!("{}.png", entry.slug), cover.clone()));
+        if let Some(sheet) = &entry.sheet {
+            // El nombre conserva `.100ms.sheet` porque el cliente saca de ahi la velocidad.
+            match std::fs::read(root.join(sheet)) {
+                Ok(bytes) => files.push((
+                    format!("{}.100ms.sheet", entry.slug),
+                    bytes,
+                )),
+                Err(error) => tracing::warn!(
+                    "wardrobe: falta la hoja animada {}: {error}",
+                    root.join(sheet).display()
+                ),
+            }
+        }
 
         let archive = Bytes::from(zip_stored(&files));
         let hash = hex::encode(Sha256::digest(&archive));
