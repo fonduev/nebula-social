@@ -151,16 +151,29 @@ public final class GenerateWardrobeAssets {
                     int factor = Math.max(1, Math.round((float) HD_MIN_SIDE / Math.min(art.getWidth(), art.getHeight())));
                     BufferedImage hd = upscale(art, factor);
 
+                    boolean companion = COMPANIONS.contains(base.slug());
                     JsonObject geometry = JsonParser.parseString(Files.readString(geo, StandardCharsets.UTF_8)).getAsJsonObject();
                     converted += scaleGeometryUv(geometry, factor);
+                    if (companion) {
+                        // Mascotas y companeros: mas grandes que en el jar y con piezas propias
+                        // (ojos, botones, cascabel, borla) para que no sean cuatro cubos planos.
+                        scaleCompanion(geometry, COMPANION_SCALE);
+                        decorateCompanion(geometry, base.slug(), paintDetailStrip(hd), hd.getWidth(), hd.getHeight());
+                    }
                     Files.writeString(models.resolve(base.slug() + ".geo.json"),
-                        factor <= 1 ? Files.readString(geo, StandardCharsets.UTF_8)
+                        factor <= 1 && !companion ? Files.readString(geo, StandardCharsets.UTF_8)
                                      : new GsonBuilder().create().toJson(geometry) + "\n",
                         StandardCharsets.UTF_8);
                     Path animation = source.resolve("cosmetics/" + base.slug() + ".animation.json");
                     String animationPath = null;
                     if (Files.isRegularFile(animation)) {
-                        Files.copy(animation, models.resolve(base.slug() + ".animation.json"));
+                        // El jar trae animaciones con comas finales; se normalizan antes de servirlas
+                        // porque el parser estricto del cliente rechaza el JSON tal cual.
+                        String raw = Files.readString(animation, StandardCharsets.UTF_8)
+                            .replaceAll(",\\s*([}\\]])", "$1");
+                        JsonElement parsed = JsonParser.parseString(raw);
+                        Files.writeString(models.resolve(base.slug() + ".animation.json"),
+                            new GsonBuilder().create().toJson(parsed) + "\n", StandardCharsets.UTF_8);
                         animationPath = "models/" + base.slug() + ".animation.json";
                     }
 
@@ -351,6 +364,250 @@ public final class GenerateWardrobeAssets {
         double[] out = fallback.clone();
         for (int i = 0; i < Math.min(array.size(), 3); i++) out[i] = array.get(i).getAsDouble();
         return out;
+    }
+
+    // =====================================================================================
+    // Companeros: mascotas y hombro, mas grandes y con detalle añadido
+    // =====================================================================================
+
+    private static final java.util.Set<String> COMPANIONS = java.util.Set.of(
+        "pet_reindeer", "shoulder_reindeer", "shoulder_snowman", "shoulder_elf", "pet_giftbox");
+    private static final double COMPANION_SCALE = 1.45;
+    private static final int DETAIL_BLOCK = 16;
+
+    /** Indices de color del cinturon de detalle que se pinta al pie del atlas. */
+    private static final int DETAIL_BLACK = 0;
+    private static final int DETAIL_WHITE = 1;
+    private static final int DETAIL_GOLD = 2;
+    private static final int DETAIL_RED = 3;
+
+    private static final int[][] DETAIL_COLORS = {
+        {20, 18, 24}, {246, 248, 255}, {232, 184, 64}, {198, 42, 54},
+    };
+
+    /** Cuerpo de la geometria: `minecraft:geometry[0]`. */
+    private static JsonObject geometryBody(JsonObject root) {
+        if (root.has("minecraft:geometry")) {
+            return root.getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
+        }
+        if (root.has("geometry") && root.get("geometry").isJsonArray()) {
+            return root.getAsJsonArray("geometry").get(0).getAsJsonObject();
+        }
+        return root;
+    }
+
+    /** Agranda el modelo alrededor del hueso que cuelga de `body`, asi no se despega del hombro. */
+    private static void scaleCompanion(JsonObject root, double factor) {
+        JsonObject geometry = geometryBody(root);
+        JsonArray bones = geometry.has("bones") ? geometry.getAsJsonArray("bones") : new JsonArray();
+        double[] anchor = anchorOf(bones);
+        for (JsonElement element : bones) {
+            JsonObject bone = element.getAsJsonObject();
+            scalePoint(bone, "pivot", anchor, factor);
+            if (!bone.has("cubes")) continue;
+            for (JsonElement cubeElement : bone.getAsJsonArray("cubes")) {
+                JsonObject cube = cubeElement.getAsJsonObject();
+                scalePoint(cube, "origin", anchor, factor);
+                scalePoint(cube, "pivot", anchor, factor);
+                if (!cube.has("size")) continue;
+                JsonArray size = cube.getAsJsonArray("size");
+                for (int i = 0; i < Math.min(3, size.size()); i++) {
+                    size.set(i, new com.google.gson.JsonPrimitive(size.get(i).getAsDouble() * factor));
+                }
+            }
+        }
+        JsonObject description = geometry.has("description") ? geometry.getAsJsonObject("description") : null;
+        if (description != null) {
+            for (String key : new String[] {"visible_bounds_width", "visible_bounds_height"}) {
+                if (description.has(key)) {
+                    description.addProperty(key, description.get(key).getAsDouble() * factor);
+                }
+            }
+        }
+    }
+
+    private static double[] anchorOf(JsonArray bones) {
+        for (JsonElement element : bones) {
+            JsonObject bone = element.getAsJsonObject();
+            if (bone.has("parent") && "body".equals(bone.get("parent").getAsString()) && bone.has("pivot")) {
+                return vec3(bone, "pivot", new double[] {0, 24, 0});
+            }
+        }
+        return new double[] {0, 24, 0};
+    }
+
+    private static void scalePoint(JsonObject owner, String key, double[] anchor, double factor) {
+        if (!owner.has(key) || !owner.get(key).isJsonArray()) return;
+        JsonArray array = owner.getAsJsonArray(key);
+        for (int i = 0; i < Math.min(3, array.size()); i++) {
+            double value = array.get(i).getAsDouble();
+            array.set(i, new com.google.gson.JsonPrimitive(anchor[i] + (value - anchor[i]) * factor));
+        }
+    }
+
+    /** Pinta bloques de color solido en la franja libre del atlas y devuelve su origen. */
+    private static int[] paintDetailStrip(BufferedImage hd) {
+        int y = hd.getHeight() - DETAIL_BLOCK;
+        for (int i = 0; i < DETAIL_COLORS.length; i++) {
+            int[] color = DETAIL_COLORS[i];
+            int argb = 0xFF000000 | (color[0] << 16) | (color[1] << 8) | color[2];
+            for (int dy = 0; dy < DETAIL_BLOCK; dy++) {
+                for (int dx = 0; dx < DETAIL_BLOCK; dx++) {
+                    hd.setRGB(i * DETAIL_BLOCK + dx, y + dy, argb);
+                }
+            }
+        }
+        return new int[] {0, y};
+    }
+
+    /**
+     * El atlas declara 64 de ancho aunque el PNG tenga 256 o 512: las UV se normalizan por el
+     * ancho declarado, asi que la franja de detalle se pasa a esa misma escala.
+     */
+    private static double[] detailUv(JsonObject geometry, int[] island, int imageW, int imageH) {
+        JsonObject description = geometry.getAsJsonObject("description");
+        double atlasW = description.get("texture_width").getAsDouble();
+        double atlasH = description.get("texture_height").getAsDouble();
+        double stepU = DETAIL_BLOCK * atlasW / Math.max(1, imageW);
+        double sizeV = DETAIL_BLOCK * atlasH / Math.max(1, imageH);
+        return new double[] {island[0] * atlasW / Math.max(1, imageW),
+            island[1] * atlasH / Math.max(1, imageH), stepU, stepU, sizeV};
+    }
+
+    private static void decorateCompanion(JsonObject root, String slug, int[] island, int imageW, int imageH) {
+        JsonObject geometry = geometryBody(root);
+        double[] details = detailUv(geometry, island, imageW, imageH);
+        JsonArray bones = geometry.has("bones") ? geometry.getAsJsonArray("bones") : new JsonArray();
+        JsonArray headCubes = new JsonArray();
+        JsonArray bodyCubes = new JsonArray();
+        JsonArray legCubes = new JsonArray();
+
+        JsonObject head = findBone(bones, "head");
+        JsonObject torso = findBone(bones, "torso");
+        if (torso == null) torso = findBone(bones, "box_base");
+
+        if (head != null) {
+            double[] box = cubeBox(head);
+            double width = box[3] - box[0];
+            double height = box[4] - box[1];
+            double eyeSize = Math.max(0.32, width * 0.19);
+            double eyeHeight = Math.max(0.28, height * 0.17);
+            double eyeY = box[1] + height * 0.55;
+            for (double side : new double[] {0.3, 0.7}) {
+                headCubes.add(solidCube(box[0] + width * side - eyeSize / 2, eyeY, box[2] - 0.1,
+                    eyeSize, eyeHeight, 0.14, DETAIL_BLACK, details));
+            }
+            if (slug.contains("reindeer") || slug.contains("elf")) {
+                headCubes.add(solidCube(box[0] + width * 0.3 - eyeSize * 0.18, eyeY + eyeHeight * 0.45,
+                    box[2] - 0.16, eyeSize * 0.38, eyeHeight * 0.38, 0.12, DETAIL_WHITE, details));
+            }
+            if (slug.contains("reindeer")) {
+                // Cascabel dorado bajo el hocico.
+                headCubes.add(solidCube(box[0] + width / 2 - 0.4, box[1] - 0.55, box[2] + 0.35,
+                    0.8, 0.7, 0.7, DETAIL_GOLD, details));
+            }
+            if (slug.contains("elf")) {
+                JsonObject tip = findBone(bones, "hat_tip");
+                double[] hat = tip != null ? cubeBox(tip) : box;
+                double puff = Math.max(0.8, (hat[3] - hat[0]) * 1.1);
+                headCubes.add(solidCube(hat[0] + (hat[3] - hat[0]) / 2 - puff / 2, hat[4] - puff * 0.3,
+                    hat[2] + (hat[5] - hat[2]) / 2 - puff / 2, puff, puff, puff, DETAIL_WHITE, details));
+            }
+        }
+
+        if (torso != null) {
+            double[] box = cubeBox(torso);
+            double width = box[3] - box[0];
+            double height = box[4] - box[1];
+            if (slug.contains("snowman")) {
+                for (int i = 0; i < 3; i++) {
+                    double size = 0.36;
+                    bodyCubes.add(solidCube(box[0] + width / 2 - size / 2,
+                        box[1] + height * (0.22 + i * 0.2), box[2] - 0.08,
+                        size, size, 0.16, DETAIL_BLACK, details));
+                }
+            }
+            if (slug.contains("elf")) {
+                bodyCubes.add(solidCube(box[0] + width / 2 - 0.42, box[1] + height * 0.28, box[2] - 0.1,
+                    0.84, 0.6, 0.16, DETAIL_GOLD, details));
+            }
+            if (slug.contains("giftbox")) {
+                bodyCubes.add(solidCube(box[0] + width / 2 - 0.4, box[1] + height * 0.55, box[2] - 0.1,
+                    0.8, 1.0, 0.16, DETAIL_GOLD, details));
+                bodyCubes.add(solidCube(box[0] + width / 2 - 0.24, box[1] + height * 0.3, box[2] - 0.1,
+                    0.48, 0.7, 0.16, DETAIL_RED, details));
+            }
+        }
+
+        if (slug.contains("reindeer")) {
+            // Cascos oscuros al pie de cada pata.
+            for (JsonElement element : bones) {
+                JsonObject bone = element.getAsJsonObject();
+                if (!bone.get("name").getAsString().startsWith("leg_")) continue;
+                double[] box = cubeBox(bone);
+                double width = Math.max(0.5, (box[3] - box[0]) * 0.95);
+                double depth = Math.max(0.5, (box[5] - box[2]) * 0.95);
+                legCubes.add(solidCube(box[0] + (box[3] - box[0]) / 2 - width / 2, box[1],
+                    box[2] + (box[5] - box[2]) / 2 - depth / 2, width, 0.3, depth, DETAIL_BLACK, details));
+            }
+        }
+
+        addDetailBone(bones, "detail_head", head != null ? head.get("name").getAsString() : "body", headCubes);
+        addDetailBone(bones, "detail_body", torso != null ? torso.get("name").getAsString() : "body", bodyCubes);
+        addDetailBone(bones, "detail_legs", torso != null ? torso.get("name").getAsString() : "body", legCubes);
+    }
+
+    private static void addDetailBone(JsonArray bones, String name, String parent, JsonArray cubes) {
+        if (cubes.size() == 0) return;
+        JsonObject bone = new JsonObject();
+        bone.addProperty("name", name);
+        bone.addProperty("parent", parent);
+        bone.add("pivot", vec(0, 24, 0));
+        bone.add("cubes", cubes);
+        bones.add(bone);
+    }
+
+    private static JsonObject findBone(JsonArray bones, String token) {
+        for (JsonElement element : bones) {
+            JsonObject bone = element.getAsJsonObject();
+            if (!bone.has("cubes")) continue;
+            if (bone.get("name").getAsString().toLowerCase().contains(token)) return bone;
+        }
+        return null;
+    }
+
+    /** Caja envolvente de los cubos de un hueso: {minX, minY, minZ, maxX, maxY, maxZ}. */
+    private static double[] cubeBox(JsonObject bone) {
+        double[] min = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE};
+        double[] max = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+        for (JsonElement cubeElement : bone.getAsJsonArray("cubes")) {
+            JsonObject cube = cubeElement.getAsJsonObject();
+            double[] origin = vec3(cube, "origin", new double[] {0, 0, 0});
+            double[] size = vec3(cube, "size", new double[] {1, 1, 1});
+            for (int i = 0; i < 3; i++) {
+                min[i] = Math.min(min[i], origin[i]);
+                max[i] = Math.max(max[i], origin[i] + size[i]);
+            }
+        }
+        if (min[0] == Double.MAX_VALUE) return new double[] {0, 0, 0, 1, 1, 1};
+        return new double[] {min[0], min[1], min[2], max[0], max[1], max[2]};
+    }
+
+    /** Cubo de un solo color: las seis caras apuntan al bloque de detalle del atlas. */
+    private static JsonObject solidCube(double x, double y, double z, double sx, double sy, double sz,
+                                        int block, double[] details) {
+        JsonObject cube = new JsonObject();
+        cube.add("origin", vec(x, y, z));
+        cube.add("size", vec(sx, sy, sz));
+        JsonObject faces = new JsonObject();
+        for (String name : new String[] {"down", "up", "west", "north", "east", "south"}) {
+            JsonObject face = new JsonObject();
+            face.add("uv", vec(details[0] + block * details[2], details[1]));
+            face.add("uv_size", vec(details[3], details[4]));
+            faces.add(name, face);
+        }
+        cube.add("uv", faces);
+        return cube;
     }
 
     // =====================================================================================
