@@ -58,12 +58,12 @@ public final class GenerateWardrobeAssets {
         model("wings_cyber", "Cyber Wings", "wings", "wings", "textures/cosmetics/wings_cyber.png"),
         model("wings_snowflake", "Snowflake Wings", "wings", "wings", "textures/cosmetics/wings_snowflake.png"),
         model("nebula_wings", "Nebula Wings", "wings", "wings", "textures/cosmetics/nebula_wings.png"),
-        model("shoulder_elf", "Elf Companion", "shoulder", "shoulder", "textures/cosmetics/shoulder_elf.png"),
+        sculpted("shoulder_elf", "Elf Companion", "shoulder", "shoulder", "elf"),
         // Animales modelados aqui: volumen redondeado con muchos cubos pequenos, no cajas.
         sculpted("shoulder_reindeer", "Reindeer Companion", "shoulder", "shoulder", "reindeer"),
         sculpted("shoulder_snowman", "Snowman Companion", "shoulder", "shoulder", "snowman"),
         model("holiday_scarf", "Holiday Scarf", "shoulder", "shoulder", "textures/cosmetics/holiday_scarf.png"),
-        model("pet_giftbox", "Giftbox Pet", "pet", "pet", "textures/cosmetics/pet_giftbox.png"),
+        sculpted("pet_giftbox", "Giftbox Pet", "pet", "pet", "giftbox"),
         sculpted("pet_reindeer", "Baby Reindeer", "pet", "pet", "reindeer"),
 
         // Aros nuevos: geometria propia y dos acabados por modelo.
@@ -430,6 +430,7 @@ public final class GenerateWardrobeAssets {
         0.72,
         0.42,
         0.34,
+        0.26, 0.38, 0.50,
     };
     private static final int PAL_BODY = 1;
     private static final int PAL_BODY_LIGHT = 4;
@@ -441,11 +442,13 @@ public final class GenerateWardrobeAssets {
     private static final int PAL_GOLD = 17;
     private static final int PAL_RED = 18;
     private static final int PAL_WOOD = 19;
+    private static final int PAL_SUIT = 21;
+    private static final int PAL_BELLY = PAL_BODY_LIGHT;
 
     /** Solo las ternas se aclaran/oscurcen por cara; un color suelto se queda tal cual. */
     private static int faceShade(int shade, int offset) {
         return switch (shade) {
-            case PAL_BODY, PAL_BODY_LIGHT, PAL_SNOW, PAL_HOOF, PAL_ANTLER -> shade + offset;
+            case PAL_BODY, PAL_BODY_LIGHT, PAL_SNOW, PAL_HOOF, PAL_ANTLER, PAL_SUIT -> shade + offset;
             default -> shade;
         };
     }
@@ -573,144 +576,278 @@ public final class GenerateWardrobeAssets {
 
         JsonArray bones = new JsonArray();
         bones.add(bone("body", null, new double[] {0, 24, 0}));
-        if ("reindeer".equals(shape)) reindeer(bones, slug, anchor);
-        else snowman(bones, anchor);
-
+        switch (shape) {
+            case "reindeer" -> reindeer(bones, slug, anchor);
+            case "snowman" -> snowman(bones, anchor);
+            case "elf" -> elf(bones, anchor);
+            case "giftbox" -> giftbox(bones, anchor);
+            default -> throw new IllegalArgumentException("forma desconocida: " + shape);
+        }
         geometry.add("bones", bones);
         geometries.add(geometry);
         root.add("minecraft:geometry", geometries);
         return root;
     }
 
-    private static void reindeer(JsonArray bones, String slug, double[] anchor) {
+    private static void addBone(JsonArray bones, String name, String parent, double[] pivot, JsonArray cubes) {
+        JsonObject node = bone(name, parent, pivot);
+        if (cubes.size() > 0) node.add("cubes", cubes);
+        bones.add(node);
+    }
+
+    /**
+     * Reno. El de mascota es un cervatillo: patas cortas, cabeza proporcionada y cuernos de
+     * boton; el de hombro es el adulto, con la cornamenta completa y tres puntas por lado.
+     */
+    private static void reindeer(JsonArray bones, String slug, double[] a) {
         String prefix = slug.startsWith("pet_") ? "pet" : "reindeer";
-        double ax = anchor[0];
-        double ay = anchor[1];
-        double az = anchor[2];
+        boolean fawn = slug.startsWith("pet_");
+        double ax = a[0];
+        double ay = a[1];
+        double az = a[2];
 
-        bones.add(bone(prefix + "_root", "body", anchor));
+        double bodyY = ay + (fawn ? 4.3 : 5.4);
+        double bodyZ = az + 0.3;
+        double bodyRX = fawn ? 1.95 : 2.15;
+        double bodyRY = fawn ? 1.7 : 1.95;
+        double bodyRZ = fawn ? 2.55 : 3.25;
 
-        double[] torso = {ax, ay + 4.6, az + 0.4};
-        JsonArray torsoCubes = new JsonArray();
-        blob(torsoCubes, torso[0], torso[1], torso[2], 2.05, 1.85, 3.0, 0.92, PAL_BODY);
-        JsonObject torsoBone = bone(prefix + "_torso", prefix + "_root", torso);
-        torsoBone.add("cubes", torsoCubes);
-        bones.add(torsoBone);
+        bones.add(bone(prefix + "_root", "body", a));
 
-        double[] tail = {ax, ay + 4.9, az + 3.25};
-        JsonArray tailCubes = new JsonArray();
-        blob(tailCubes, tail[0], tail[1], tail[2], 0.72, 0.9, 0.62, 0.52, PAL_BODY);
-        JsonObject tailBone = bone(prefix + "_tail", prefix + "_torso", tail);
-        tailBone.add("cubes", tailCubes);
-        bones.add(tailBone);
+        JsonArray torso = new JsonArray();
+        blob(torso, ax, bodyY, bodyZ, bodyRX, bodyRY, bodyRZ, fawn ? 0.78 : 0.88, PAL_BODY);
+        // Pecho claro pegado a la cara de delante: si va dentro del torso solo deja hilachas.
+        shadedCube(torso, ax - bodyRX * 0.55, bodyY - bodyRY * 0.55, bodyZ - bodyRZ * 0.94,
+            bodyRX * 1.1, bodyRY * 0.75, 0.34, PAL_BELLY);
+        addBone(bones, prefix + "_torso", prefix + "_root", new double[] {ax, bodyY, bodyZ}, torso);
 
-        double[] neck = {ax, ay + 6.7, az - 1.85};
-        JsonArray neckCubes = new JsonArray();
-        blob(neckCubes, neck[0], neck[1], neck[2], 1.25, 1.6, 1.3, 0.78, PAL_BODY);
-        JsonObject neckBone = bone(prefix + "_neck", prefix + "_torso", neck);
-        neckBone.add("cubes", neckCubes);
-        bones.add(neckBone);
+        double tailY = bodyY + bodyRY * 0.25;
+        double tailZ = bodyZ + bodyRZ * 0.92;
+        JsonArray tail = new JsonArray();
+        blob(tail, ax, tailY, tailZ, 0.66, 0.8, 0.55, 0.5, PAL_BODY);
+        addBone(bones, prefix + "_tail", prefix + "_torso", new double[] {ax, tailY, tailZ}, tail);
 
-        double[] head = {ax, ay + 8.7, az - 2.8};
-        JsonArray headCubes = new JsonArray();
-        blob(headCubes, head[0], head[1], head[2], 1.5, 1.4, 1.8, 0.7, PAL_BODY);
-        blob(headCubes, ax, ay + 8.15, az - 4.1, 0.78, 0.62, 0.88, 0.6, PAL_BODY_LIGHT);
-        blob(headCubes, ax + 1.42, ay + 9.6, az - 2.5, 0.4, 0.62, 0.5, 0.48, PAL_BODY);
-        blob(headCubes, ax - 1.42, ay + 9.6, az - 2.5, 0.4, 0.62, 0.5, 0.48, PAL_BODY);
-        shadedCube(headCubes, ax + 0.45, ay + 8.9, az - 4.95, 0.52, 0.5, 0.36, PAL_EYE);
-        shadedCube(headCubes, ax - 0.97, ay + 8.9, az - 4.95, 0.52, 0.5, 0.36, PAL_EYE);
-        shadedCube(headCubes, ax - 0.3, ay + 6.35, az - 3.35, 0.6, 0.55, 0.5, PAL_GOLD);
-        JsonObject headBone = bone(prefix + "_head", prefix + "_neck", head);
-        headBone.add("cubes", headCubes);
-        bones.add(headBone);
+        double neckY = bodyY + (fawn ? 1.9 : 2.5);
+        double neckZ = bodyZ - (fawn ? 1.25 : 1.8);
+        JsonArray neck = new JsonArray();
+        blob(neck, ax, neckY, neckZ, 1.15, 1.45, 1.15, 0.72, PAL_BODY);
+        addBone(bones, prefix + "_neck", prefix + "_torso", new double[] {ax, neckY, neckZ}, neck);
 
-        double[] nose = {ax, ay + 8.1, az - 4.75};
-        JsonArray noseCubes = new JsonArray();
-        shadedCube(noseCubes, nose[0] - 0.34, nose[1] - 0.34, az - 5.1, 0.68, 0.68, 0.62, PAL_NOSE);
-        JsonObject noseBone = bone("nose_glow15", prefix + "_head", nose);
-        noseBone.add("cubes", noseCubes);
-        bones.add(noseBone);
+        double headY = neckY + (fawn ? 1.75 : 2.15);
+        double headZ = neckZ - (fawn ? 0.95 : 1.2);
+        double headRX = fawn ? 1.5 : 1.45;
+        double headRY = fawn ? 1.4 : 1.35;
+        double headRZ = fawn ? 1.6 : 1.8;
 
-        JsonArray left = new JsonArray();
-        chain(left, ax - 1.0, ay + 9.7, az - 2.5, -1.0, 3.3, 0.4, 7, 0.58, 0.3, PAL_ANTLER);
-        chain(left, ax - 1.65, ay + 11.2, az - 2.4, -1.1, 0.9, -0.6, 4, 0.4, 0.24, PAL_ANTLER);
-        JsonObject leftBone = bone("antler_left", prefix + "_head", new double[] {ax - 1.0, ay + 9.7, az - 2.5});
-        leftBone.add("cubes", left);
-        bones.add(leftBone);
+        JsonArray head = new JsonArray();
+        blob(head, ax, headY, headZ, headRX, headRY, headRZ, 0.66, PAL_BODY);
+        blob(head, ax, headY - headRY * 0.35, headZ - headRZ * 0.78,
+            0.78, 0.62, 0.9, 0.58, PAL_BELLY);
+        double faceZ = headZ - headRZ;
+        double eyeSize = fawn ? 0.62 : 0.54;
+        for (double side : new double[] {-1, 1}) {
+            shadedCube(head, ax + side * (fawn ? 0.6 : 0.56) - eyeSize / 2,
+                headY + headRY * 0.2, faceZ - 0.16, eyeSize, eyeSize * 0.94, 0.3, PAL_EYE);
+        }
+        for (double side : new double[] {-1, 1}) {
+            blob(head, ax + side * (fawn ? 1.28 : 1.34), headY + headRY * (fawn ? 0.5 : 0.68), headZ + 0.12,
+                fawn ? 0.34 : 0.42, fawn ? 0.5 : 0.72, fawn ? 0.4 : 0.46, fawn ? 0.4 : 0.46, PAL_BODY);
+        }
+        shadedCube(head, ax - 0.32, headY - headRY - 0.6, headZ - headRZ * 0.45,
+            0.64, 0.58, 0.52, PAL_GOLD);
+        addBone(bones, prefix + "_head", prefix + "_neck", new double[] {ax, headY, headZ}, head);
 
-        JsonArray right = new JsonArray();
-        chain(right, ax + 1.0, ay + 9.7, az - 2.5, 1.0, 3.3, 0.4, 7, 0.58, 0.3, PAL_ANTLER);
-        chain(right, ax + 1.65, ay + 11.2, az - 2.4, 1.1, 0.9, -0.6, 4, 0.4, 0.24, PAL_ANTLER);
-        JsonObject rightBone = bone("antler_right", prefix + "_head", new double[] {ax + 1.0, ay + 9.7, az - 2.5});
-        rightBone.add("cubes", right);
-        bones.add(rightBone);
+        double noseY = headY - headRY * 0.35;
+        double noseZ = headZ - headRZ;
+        JsonArray nose = new JsonArray();
+        shadedCube(nose, ax - 0.36, noseY, noseZ - 0.32, 0.72, 0.66, 0.62, PAL_NOSE);
+        addBone(bones, "nose_glow15", prefix + "_head", new double[] {ax, noseY, noseZ}, nose);
 
+        double antlerX = fawn ? 0.95 : 1.05;
+        double antlerY = headY + headRY * 0.85;
+        double antlerZ = headZ + 0.15;
+        for (double side : new double[] {-1, 1}) {
+            JsonArray antler = new JsonArray();
+            if (fawn) {
+                chain(antler, ax + side * antlerX, antlerY, antlerZ,
+                    side * 0.4, 1.1, 0.25, 3, 0.46, 0.32, PAL_ANTLER);
+                chain(antler, ax + side * (antlerX + 0.15), antlerY + 0.7, antlerZ + 0.15,
+                    side * 0.5, 0.3, -0.3, 2, 0.32, 0.24, PAL_ANTLER);
+            } else {
+                chain(antler, ax + side * antlerX, antlerY, antlerZ,
+                    side * 1.5, 3.0, 0.5, 7, 0.52, 0.28, PAL_ANTLER);
+                chain(antler, ax + side * (antlerX + 0.8), antlerY + 1.4, antlerZ + 0.25,
+                    side * 1.35, 0.35, -0.45, 4, 0.38, 0.24, PAL_ANTLER);
+                chain(antler, ax + side * (antlerX + 0.6), antlerY + 2.45, antlerZ + 0.4,
+                    side * 1.25, 0.3, -0.55, 3, 0.34, 0.22, PAL_ANTLER);
+            }
+            addBone(bones, side > 0 ? "antler_left" : "antler_right", prefix + "_head",
+                new double[] {ax + side * antlerX, antlerY, antlerZ}, antler);
+        }
+
+        double legTop = ay + (fawn ? 2.9 : 3.5);
+        double legRadius = fawn ? 0.5 : 0.6;
+        double legX = fawn ? 1.0 : 1.15;
+        double legZ = fawn ? 1.5 : 1.95;
         String[][] legs = {
-            {"leg_front_left", "1", "-1.85"}, {"leg_front_right", "-1", "-1.85"},
-            {"leg_back_left", "1", "1.95"}, {"leg_back_right", "-1", "1.95"},
+            {"leg_front_left", "1", "-"}, {"leg_front_right", "-1", "-"},
+            {"leg_back_left", "1", "+"}, {"leg_back_right", "-1", "+"},
         };
         for (String[] leg : legs) {
-            double lx = ax + 1.15 * Double.parseDouble(leg[1]);
-            double lz = az + Double.parseDouble(leg[2]);
-            JsonArray legCubes = new JsonArray();
-            limb(legCubes, lx, lz, ay + 3.5, ay + 0.45, 0.64, 0.44, PAL_BODY, PAL_HOOF);
-            JsonObject legBone = bone(leg[0], prefix + "_torso", new double[] {lx, ay + 2.6, lz});
-            legBone.add("cubes", legCubes);
-            bones.add(legBone);
+            double lx = ax + legX * Double.parseDouble(leg[1]);
+            double lz = bodyZ + legZ * (leg[2].equals("+") ? 1 : -1);
+            JsonArray cubes = new JsonArray();
+            limb(cubes, lx, lz, legTop, ay + 0.4, legRadius, legRadius * 0.72, PAL_BODY, PAL_HOOF);
+            addBone(bones, leg[0], prefix + "_torso", new double[] {lx, legTop - 0.5, lz}, cubes);
         }
     }
 
-    private static void snowman(JsonArray bones, double[] anchor) {
-        double ax = anchor[0];
-        double ay = anchor[1];
-        double az = anchor[2];
+    /** Muneco de nieve: tres bolas, cara de carbon, bufanda, brazos de rama y sombrero de copa. */
+    private static void snowman(JsonArray bones, double[] a) {
+        double ax = a[0];
+        double ay = a[1];
+        double az = a[2];
+        bones.add(bone("snowman_root", "body", a));
 
-        bones.add(bone("snowman_root", "body", anchor));
+        double baseR = 2.2;
+        double torsoR = 1.7;
+        double headR = 1.35;
+        double baseY = ay + baseR * 0.92;
+        double torsoY = baseY + baseR * 0.7 + torsoR * 0.5;
+        double headY = torsoY + torsoR * 0.75 + headR * 0.5;
 
-        JsonArray baseCubes = new JsonArray();
-        blob(baseCubes, ax, ay + 2.25, az, 2.25, 2.1, 2.25, 0.92, PAL_SNOW);
-        JsonObject baseBone = bone("snow_base", "snowman_root", new double[] {ax, ay + 2.25, az});
-        baseBone.add("cubes", baseCubes);
-        bones.add(baseBone);
+        JsonArray base = new JsonArray();
+        blob(base, ax, baseY, az, baseR, baseR * 0.95, baseR, 0.9, PAL_SNOW);
+        addBone(bones, "snow_base", "snowman_root", new double[] {ax, baseY, az}, base);
 
-        JsonArray torsoCubes = new JsonArray();
-        blob(torsoCubes, ax, ay + 5.9, az, 1.75, 1.65, 1.75, 0.82, PAL_SNOW);
+        JsonArray torso = new JsonArray();
+        blob(torso, ax, torsoY, az, torsoR, torsoR * 0.98, torsoR, 0.78, PAL_SNOW);
         for (int i = 0; i < 3; i++) {
-            shadedCube(torsoCubes, ax - 0.24, ay + 5.25 + i * 1.0, az - 1.9, 0.48, 0.48, 0.34, PAL_EYE);
+            shadedCube(torso, ax - 0.24, torsoY - 0.55 + i * 0.85, az - torsoR * 1.0,
+                0.48, 0.48, 0.34, PAL_EYE);
         }
-        shadedCube(torsoCubes, ax - 1.9, ay + 7.15, az - 1.0, 3.8, 0.42, 2.0, PAL_RED);
-        JsonObject torsoBone = bone("snow_torso", "snow_base", new double[] {ax, ay + 5.9, az});
-        torsoBone.add("cubes", torsoCubes);
-        bones.add(torsoBone);
+        // Bufanda: banda frontal y cola colgando, no una losa que tapa el torso.
+        shadedCube(torso, ax - torsoR * 0.98, torsoY + torsoR * 0.72, az - torsoR * 1.02,
+            torsoR * 1.96, 0.44, 0.4, PAL_RED);
+        shadedCube(torso, ax - torsoR * 1.04, torsoY + torsoR * 0.72, az - torsoR * 0.4,
+            0.42, 0.44, torsoR * 1.3, PAL_RED);
+        shadedCube(torso, ax - 0.36, torsoY + 0.2, az - torsoR * 1.02, 0.72, 1.45, 0.36, PAL_RED);
+        addBone(bones, "snow_torso", "snow_base", new double[] {ax, torsoY, az}, torso);
 
-        JsonArray headCubes = new JsonArray();
-        blob(headCubes, ax, ay + 8.7, az, 1.4, 1.4, 1.4, 0.68, PAL_SNOW);
+        JsonArray head = new JsonArray();
+        blob(head, ax, headY, az, headR, headR, headR, 0.66, PAL_SNOW);
+        double faceZ = az - headR;
         for (double side : new double[] {-0.55, 0.55}) {
-            shadedCube(headCubes, ax + side - 0.17, ay + 9.05, az - 1.52, 0.34, 0.34, 0.34, PAL_EYE);
+            shadedCube(head, ax + side - 0.19, headY + 0.32, faceZ - 0.2, 0.38, 0.38, 0.34, PAL_EYE);
         }
-        chain(headCubes, ax, ay + 8.55, az - 1.3, 0, -0.14, -1.3, 4, 0.46, 0.22, PAL_GOLD);
-        JsonObject headBone = bone("snow_head", "snow_torso", new double[] {ax, ay + 8.7, az});
-        headBone.add("cubes", headCubes);
-        bones.add(headBone);
+        for (int i = 0; i < 4; i++) {
+            double t = (i - 1.5) / 1.5;
+            shadedCube(head, ax + t * 0.72 - 0.13,
+                headY - 0.42 - (1 - t * t) * 0.26, faceZ - 0.16, 0.26, 0.26, 0.3, PAL_EYE);
+        }
+        chain(head, ax, headY, az - headR * 0.9, 0, -0.2, -1.4, 4, 0.46, 0.2, PAL_GOLD);
+        addBone(bones, "snow_head", "snow_torso", new double[] {ax, headY, az}, head);
 
-        JsonArray hatCubes = new JsonArray();
-        shadedCube(hatCubes, ax - 1.6, ay + 10.0, az - 1.6, 3.2, 0.42, 3.2, PAL_HOOF + 1);
-        shadedCube(hatCubes, ax - 1.05, ay + 10.4, az - 1.05, 2.1, 1.9, 2.1, PAL_HOOF);
-        JsonObject hatBone = bone("top_hat", "snow_head", new double[] {ax, ay + 10.2, az});
-        hatBone.add("cubes", hatCubes);
-        bones.add(hatBone);
+        JsonArray hat = new JsonArray();
+        double hatY = headY + headR * 0.85;
+        shadedCube(hat, ax - 1.45, hatY, az - 1.45, 2.9, 0.42, 2.9, PAL_HOOF + 1);
+        shadedCube(hat, ax - 1.1, hatY + 0.42, az - 1.1, 2.2, 2.0, 2.2, PAL_HOOF);
+        shadedCube(hat, ax - 1.14, hatY + 0.58, az - 1.14, 2.28, 0.5, 2.28, PAL_RED);
+        addBone(bones, "top_hat", "snow_head", new double[] {ax, hatY, az}, hat);
 
-        JsonArray leftArm = new JsonArray();
-        chain(leftArm, ax + 1.6, ay + 6.45, az, 1.5, 0.35, 0, 4, 0.36, 0.24, PAL_WOOD);
-        JsonObject leftArmBone = bone("arm_left", "snow_torso", new double[] {ax + 1.6, ay + 6.45, az});
-        leftArmBone.add("cubes", leftArm);
-        bones.add(leftArmBone);
+        for (double side : new double[] {-1, 1}) {
+            double sx = ax + side * torsoR * 0.95;
+            JsonArray arm = new JsonArray();
+            chain(arm, sx, torsoY + 0.6, az, side * 1.6, 0.45, 0, 4, 0.36, 0.24, PAL_WOOD);
+            chain(arm, ax + side * (torsoR * 0.95 + 0.95), torsoY + 0.95, az,
+                side * 0.7, 0.75, 0.2, 3, 0.26, 0.18, PAL_WOOD);
+            addBone(bones, side > 0 ? "arm_left" : "arm_right", "snow_torso",
+                new double[] {sx, torsoY + 0.6, az}, arm);
+        }
+    }
 
-        JsonArray rightArm = new JsonArray();
-        chain(rightArm, ax - 1.94, ay + 6.45, az, -1.5, 0.35, 0, 4, 0.36, 0.24, PAL_WOOD);
-        JsonObject rightArmBone = bone("arm_right", "snow_torso", new double[] {ax - 1.94, ay + 6.45, az});
-        rightArmBone.add("cubes", rightArm);
-        bones.add(rightArmBone);
+    /** Elfo: botas, piernas, tunica con cinturon, brazos con manos, cabeza, orejas y gorro. */
+    private static void elf(JsonArray bones, double[] a) {
+        double ax = a[0];
+        double ay = a[1];
+        double az = a[2];
+        bones.add(bone("elf_root", "body", a));
+
+        double legTop = ay + 3.4;
+        for (double side : new double[] {-1, 1}) {
+            double lx = ax + side * 0.8;
+            JsonArray leg = new JsonArray();
+            limb(leg, lx, az, legTop + 0.4, ay + 0.6, 0.52, 0.46, PAL_SUIT, PAL_HOOF);
+            addBone(bones, side > 0 ? "leg_left" : "leg_right", "elf_root",
+                new double[] {lx, legTop + 0.4, az}, leg);
+        }
+
+        double torsoY = ay + 5.3;
+        JsonArray torso = new JsonArray();
+        blob(torso, ax, torsoY, az, 1.6, 1.85, 1.5, 0.78, PAL_SUIT);
+        shadedCube(torso, ax - 1.62, torsoY - 0.95, az - 1.52, 3.24, 0.5, 3.04, PAL_HOOF);
+        shadedCube(torso, ax - 0.4, torsoY - 0.98, az - 1.62, 0.8, 0.54, 0.22, PAL_GOLD);
+        shadedCube(torso, ax - 1.2, torsoY + 1.55, az - 1.2, 2.4, 0.4, 2.4, PAL_SNOW);
+        addBone(bones, "elf_torso", "elf_root", new double[] {ax, torsoY, az}, torso);
+
+        for (double side : new double[] {-1, 1}) {
+            double sx = ax + side * 1.45;
+            JsonArray arm = new JsonArray();
+            chain(arm, sx, torsoY + 1.0, az, side * 0.75, -1.7, 0.1, 4, 0.44, 0.34, PAL_SUIT);
+            shadedCube(arm, ax + side * 2.16 - 0.28, torsoY - 0.95, az - 0.3,
+                0.56, 0.5, 0.56, PAL_BELLY);
+            addBone(bones, side > 0 ? "arm_left" : "arm_right", "elf_torso",
+                new double[] {sx, torsoY + 1.0, az}, arm);
+        }
+
+        double headY = ay + 8.4;
+        JsonArray head = new JsonArray();
+        blob(head, ax, headY, az, 1.3, 1.3, 1.25, 0.62, PAL_BELLY);
+        for (double side : new double[] {-0.5, 0.5}) {
+            shadedCube(head, ax + side - 0.17, headY + 0.2, az - 1.4, 0.34, 0.34, 0.34, PAL_EYE);
+        }
+        shadedCube(head, ax - 0.2, headY - 0.18, az - 1.42, 0.4, 0.36, 0.34, PAL_BELLY);
+        for (double side : new double[] {-1, 1}) {
+            blob(head, ax + side * 1.22, headY - 0.05, az, 0.3, 0.45, 0.3, 0.4, PAL_BELLY);
+        }
+        shadedCube(head, ax - 1.2, headY + 1.05, az - 1.2, 2.4, 0.38, 2.4, PAL_SNOW);
+        addBone(bones, "elf_head", "elf_torso", new double[] {ax, headY, az}, head);
+
+        JsonArray hat = new JsonArray();
+        chain(hat, ax, headY + 1.2, az, 0.55, 2.6, 0.35, 8, 1.45, 0.32, PAL_SUIT);
+        shadedCube(hat, ax + 0.55 - 0.36, headY + 3.7, az + 0.35 - 0.36, 0.72, 0.72, 0.72, PAL_SNOW);
+        addBone(bones, "elf_hat_base", "elf_head", new double[] {ax, headY + 1.2, az}, new JsonArray());
+        addBone(bones, "elf_hat_tip", "elf_hat_base", new double[] {ax + 0.55, headY + 3.7, az + 0.35}, hat);
+    }
+
+    /** Regalo: caja redondeada, tapa, cintas cruzadas y lazo de cuatro bucles. */
+    private static void giftbox(JsonArray bones, double[] a) {
+        double ax = a[0];
+        double ay = a[1];
+        double az = a[2];
+        bones.add(bone("gift_root", "body", a));
+
+        double boxY = ay + 2.3;
+        double boxR = 2.0;
+        JsonArray box = new JsonArray();
+        blob(box, ax, boxY, az, boxR, 1.9, boxR, 0.92, PAL_RED);
+        shadedCube(box, ax - boxR - 0.02, ay + 0.35, az - 0.32, boxR * 2.04, 3.9, 0.64, PAL_GOLD);
+        shadedCube(box, ax - 0.32, ay + 0.35, az - boxR - 0.02, 0.64, 3.9, boxR * 2.04, PAL_GOLD);
+        addBone(bones, "box_base", "gift_root", new double[] {ax, boxY, az}, box);
+
+        double lidY = ay + 4.35;
+        double lidR = 2.15;
+        JsonArray lid = new JsonArray();
+        blob(lid, ax, lidY, az, lidR, 0.6, lidR, 0.78, PAL_RED);
+        shadedCube(lid, ax - lidR - 0.02, ay + 4.15, az - 0.3, lidR * 2.04, 0.6, 0.6, PAL_GOLD);
+        shadedCube(lid, ax - 0.3, ay + 4.15, az - lidR - 0.02, 0.6, 0.6, lidR * 2.04, PAL_GOLD);
+        for (int i = 0; i < 4; i++) {
+            double angle = Math.PI / 2 * i + Math.PI / 4;
+            blob(lid, ax + Math.cos(angle) * 1.15, lidY + 1.15, az + Math.sin(angle) * 1.15,
+                0.92, 0.72, 0.92, 0.5, PAL_GOLD);
+        }
+        shadedCube(lid, ax - 0.45, lidY + 0.85, az - 0.45, 0.9, 0.9, 0.9, PAL_GOLD);
+        addBone(bones, "box_lid", "box_base", new double[] {ax, lidY, az}, lid);
     }
 
     // =====================================================================================
