@@ -36,7 +36,7 @@ import javax.imageio.ImageIO;
  */
 public final class GenerateWardrobeAssets {
 
-    enum Source { MODEL, CAPE, GENERATED }
+    enum Source { MODEL, CAPE, GENERATED, SCULPTED }
 
     private record Base(String slug, String name, String type, String slot, Source source,
                         String path, String art, String[] designs) {}
@@ -59,11 +59,12 @@ public final class GenerateWardrobeAssets {
         model("wings_snowflake", "Snowflake Wings", "wings", "wings", "textures/cosmetics/wings_snowflake.png"),
         model("nebula_wings", "Nebula Wings", "wings", "wings", "textures/cosmetics/nebula_wings.png"),
         model("shoulder_elf", "Elf Companion", "shoulder", "shoulder", "textures/cosmetics/shoulder_elf.png"),
-        model("shoulder_reindeer", "Reindeer Companion", "shoulder", "shoulder", "textures/cosmetics/shoulder_reindeer.png"),
-        model("shoulder_snowman", "Snowman Companion", "shoulder", "shoulder", "textures/cosmetics/shoulder_snowman.png"),
+        // Animales modelados aqui: volumen redondeado con muchos cubos pequenos, no cajas.
+        sculpted("shoulder_reindeer", "Reindeer Companion", "shoulder", "shoulder", "reindeer"),
+        sculpted("shoulder_snowman", "Snowman Companion", "shoulder", "shoulder", "snowman"),
         model("holiday_scarf", "Holiday Scarf", "shoulder", "shoulder", "textures/cosmetics/holiday_scarf.png"),
         model("pet_giftbox", "Giftbox Pet", "pet", "pet", "textures/cosmetics/pet_giftbox.png"),
-        model("pet_reindeer", "Baby Reindeer", "pet", "pet", "textures/cosmetics/pet_reindeer.png"),
+        sculpted("pet_reindeer", "Baby Reindeer", "pet", "pet", "reindeer"),
 
         // Aros nuevos: geometria propia y dos acabados por modelo.
         generated("ring_prism", "Prism Ring", "ring_thin", "rainbow", "prismglass"),
@@ -109,6 +110,10 @@ public final class GenerateWardrobeAssets {
     private static Base cape(String slug, String name, String art, boolean animated) {
         return new Base(slug, name, "cape", "cape", Source.CAPE, null, art,
             new String[] {animated ? art + "#anim" : art});
+    }
+
+    private static Base sculpted(String slug, String name, String type, String slot, String shape) {
+        return new Base(slug, name, type, slot, Source.SCULPTED, shape, null, MATERIALS);
     }
 
     private static Base generated(String slug, String name, String geometry, String... designs) {
@@ -210,6 +215,42 @@ public final class GenerateWardrobeAssets {
                         ImageIO.write(stacked, "png", textures.resolve(base.slug() + ".100ms.sheet").toFile());
                     }
                     entries.add(entryJson(base.slug(), base, base.name(), png, null, null, sheet));
+                }
+                case SCULPTED -> {
+                    Path origin = source.resolve("cosmetics/" + base.slug() + ".geo.json");
+                    if (!Files.isRegularFile(origin)) {
+                        System.err.println("falta el modelo " + origin);
+                        continue;
+                    }
+                    JsonObject sourceGeometry = JsonParser.parseString(Files.readString(origin, StandardCharsets.UTF_8)).getAsJsonObject();
+                    JsonObject built = buildCompanion(base.path(), base.slug(), geometryBody(sourceGeometry));
+                    Files.writeString(models.resolve(base.slug() + ".geo.json"),
+                        new GsonBuilder().create().toJson(built) + "\n", StandardCharsets.UTF_8);
+
+                    String animationPath = null;
+                    Path animation = source.resolve("cosmetics/" + base.slug() + ".animation.json");
+                    if (Files.isRegularFile(animation)) {
+                        String raw = Files.readString(animation, StandardCharsets.UTF_8)
+                            .replaceAll(",\\s*([}\\]])", "$1");
+                        JsonElement parsed = JsonParser.parseString(raw);
+                        Files.writeString(models.resolve(base.slug() + ".animation.json"),
+                            new GsonBuilder().create().toJson(parsed) + "\n", StandardCharsets.UTF_8);
+                        animationPath = "models/" + base.slug() + ".animation.json";
+                    }
+
+                    for (int i = 0; i < MATERIALS.length; i++) {
+                        String slug = base.slug() + "-" + MATERIALS[i];
+                        String png = "textures/" + slug + ".png";
+                        BufferedImage painted = applyMaterial(paletteAtlas(), MATERIALS[i], i, base.slug());
+                        // Fuera de la franja de paleta el atlas va limpio: los brillos del material
+                        // solo dejarian niebla en zonas que ninguna cara usa.
+                        for (int y = 0; y < PAL_ROW; y++) {
+                            for (int x = 0; x < painted.getWidth(); x++) painted.setRGB(x, y, 0);
+                        }
+                        ImageIO.write(painted, "png", textures.resolve(slug + ".png").toFile());
+                        entries.add(entryJson(slug, base, base.name() + " (" + MATERIAL_LABELS[i] + ")",
+                            png, "models/" + base.slug() + ".geo.json", animationPath, null));
+                    }
                 }
                 case GENERATED -> {
                     Files.writeString(models.resolve(base.slug() + ".geo.json"),
@@ -364,6 +405,312 @@ public final class GenerateWardrobeAssets {
         double[] out = fallback.clone();
         for (int i = 0; i < Math.min(array.size(), 3); i++) out[i] = array.get(i).getAsDouble();
         return out;
+    }
+
+    // =====================================================================================
+    // Companeros modelados: cuerpos redondeados con cubos pequenos y sombreado por cara
+    // =====================================================================================
+
+    private static final int PAL_BLOCK = 8;
+    private static final int PAL_ROW = 248;
+
+    /**
+     * Luminancias de la paleta; el material las retinta con su rampa.
+     * Cuerpo, panza, nieve, pezuna y asta van en ternas (oscuro / medio / claro) para que
+     * `shadedCube` pueda iluminar la cara de arriba y oscurecer la de abajo.
+     */
+    private static final double[] PALETTE = {
+        0.30, 0.46, 0.62,
+        0.70, 0.82, 0.94,
+        0.86, 0.93, 1.00,
+        0.08, 0.15, 0.22,
+        0.52, 0.64, 0.76,
+        0.03,
+        1.00,
+        0.72,
+        0.42,
+        0.34,
+    };
+    private static final int PAL_BODY = 1;
+    private static final int PAL_BODY_LIGHT = 4;
+    private static final int PAL_SNOW = 7;
+    private static final int PAL_HOOF = 10;
+    private static final int PAL_ANTLER = 13;
+    private static final int PAL_EYE = 15;
+    private static final int PAL_NOSE = 16;
+    private static final int PAL_GOLD = 17;
+    private static final int PAL_RED = 18;
+    private static final int PAL_WOOD = 19;
+
+    /** Solo las ternas se aclaran/oscurcen por cara; un color suelto se queda tal cual. */
+    private static int faceShade(int shade, int offset) {
+        return switch (shade) {
+            case PAL_BODY, PAL_BODY_LIGHT, PAL_SNOW, PAL_HOOF, PAL_ANTLER -> shade + offset;
+            default -> shade;
+        };
+    }
+
+    private static BufferedImage paletteAtlas() {
+        BufferedImage atlas = new BufferedImage(256, 256, BufferedImage.TYPE_INT_ARGB);
+        for (int i = 0; i < PALETTE.length; i++) {
+            int level = (int) Math.round(PALETTE[i] * 255);
+            int argb = 0xFF000000 | (level << 16) | (level << 8) | level;
+            for (int y = 0; y < PAL_BLOCK; y++) {
+                for (int x = 0; x < PAL_BLOCK; x++) {
+                    atlas.setRGB(i * PAL_BLOCK + x, PAL_ROW + y, argb);
+                }
+            }
+        }
+        return atlas;
+    }
+
+    private static void faceBlock(JsonObject faces, String name, int block) {
+        int index = Math.max(0, Math.min(PALETTE.length - 1, block));
+        JsonObject face = new JsonObject();
+        face.add("uv", vec(index * PAL_BLOCK, PAL_ROW));
+        face.add("uv_size", vec(PAL_BLOCK, PAL_BLOCK));
+        faces.add(name, face);
+    }
+
+    /** Cubo con la cara de arriba mas clara y la de abajo mas oscura que los lados. */
+    private static void shadedCube(JsonArray cubes, double x, double y, double z,
+                                   double sx, double sy, double sz, int shade) {
+        JsonObject cube = new JsonObject();
+        cube.add("origin", vec(x, y, z));
+        cube.add("size", vec(sx, sy, sz));
+        JsonObject faces = new JsonObject();
+        faceBlock(faces, "up", faceShade(shade, 1));
+        faceBlock(faces, "down", faceShade(shade, -1));
+        for (String name : new String[] {"west", "north", "east", "south"}) {
+            faceBlock(faces, name, shade);
+        }
+        cube.add("uv", faces);
+        cubes.add(cube);
+    }
+
+    /** Volumen tipo esfera hecho de cubos pequenos: la clave para que no sea una caja. */
+    private static void blob(JsonArray cubes, double cx, double cy, double cz,
+                             double rx, double ry, double rz, double step, int shade) {
+        for (double x = cx - rx + step / 2; x <= cx + rx; x += step) {
+            for (double y = cy - ry + step / 2; y <= cy + ry; y += step) {
+                for (double z = cz - rz + step / 2; z <= cz + rz; z += step) {
+                    double dx = (x - cx) / rx;
+                    double dy = (y - cy) / ry;
+                    double dz = (z - cz) / rz;
+                    if (dx * dx + dy * dy + dz * dz > 1.0) continue;
+                    // Solo la cascara: los cubos de dentro no se ven y engordan el modelo.
+                    if (Math.abs(dx) < 1 - Math.min(1, step * 1.6 / rx)
+                        && Math.abs(dy) < 1 - Math.min(1, step * 1.6 / ry)
+                        && Math.abs(dz) < 1 - Math.min(1, step * 1.6 / rz)) continue;
+                    double size = step * 1.18;
+                    shadedCube(cubes, x - size / 2, y - size / 2, z - size / 2, size, size, size, shade);
+                }
+            }
+        }
+    }
+
+    /**
+     * Cadena continua de cubos: cuernos, ramas y zanahorias con punta fina.
+     * (x,y,z) es el arranque y (dx,dy,dz) el vector total hasta la punta; el tamano nunca baja
+     * del paso para que la pieza quede solida y no salga como cuentas sueltas.
+     */
+    private static void chain(JsonArray cubes, double x, double y, double z, double dx, double dy, double dz,
+                              int steps, double start, double end, int shade) {
+        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (length <= 0) return;
+        double ux = dx / length;
+        double uy = dy / length;
+        double uz = dz / length;
+        double spacing = length / steps;
+        for (int i = 0; i <= steps; i++) {
+            double f = i / (double) steps;
+            double size = Math.max(spacing * 1.5, start + (end - start) * f);
+            double cx = x + ux * spacing * i;
+            double cy = y + uy * spacing * i;
+            double cz = z + uz * spacing * i;
+            shadedCube(cubes, cx - size / 2, cy - size / 2, cz - size / 2, size, size, size, shade);
+        }
+    }
+
+    /** Pata que se afina hacia abajo, con pezuna oscura. */
+    private static void limb(JsonArray cubes, double x, double z, double top, double bottom,
+                             double radiusTop, double radiusBottom, int shade, int hoof) {
+        double step = 0.55;
+        int count = (int) Math.max(1, Math.round((top - bottom) / step));
+        for (int i = 0; i < count; i++) {
+            double f = i / (double) count;
+            double y = top - (top - bottom) * f;
+            double radius = radiusTop + (radiusBottom - radiusTop) * f;
+            double size = radius * 2;
+            shadedCube(cubes, x - size / 2, y - step * 0.65, z - size / 2, size, step * 1.2, size, shade);
+        }
+        shadedCube(cubes, x - 0.52, bottom, z - 0.58, 1.04, 0.45, 1.16, hoof);
+    }
+
+    private static JsonObject bone(String name, String parent, double[] pivot) {
+        JsonObject bone = new JsonObject();
+        bone.addProperty("name", name);
+        if (parent != null) bone.addProperty("parent", parent);
+        bone.add("pivot", vec(pivot[0], pivot[1], pivot[2]));
+        return bone;
+    }
+
+    private static JsonObject buildCompanion(String shape, String slug, JsonObject reference) {
+        double[] anchor = anchorOf(reference.getAsJsonArray("bones"));
+
+        JsonObject root = new JsonObject();
+        root.addProperty("format_version", "1.12.0");
+        JsonArray geometries = new JsonArray();
+        JsonObject geometry = new JsonObject();
+        JsonObject description = new JsonObject();
+        description.addProperty("identifier", "geometry." + slug);
+        description.addProperty("texture_width", 256);
+        description.addProperty("texture_height", 256);
+        description.addProperty("visible_bounds_width", 3);
+        description.addProperty("visible_bounds_height", 3);
+        description.add("visible_bounds_offset", vec(0, 1.5, 0));
+        geometry.add("description", description);
+
+        JsonArray bones = new JsonArray();
+        bones.add(bone("body", null, new double[] {0, 24, 0}));
+        if ("reindeer".equals(shape)) reindeer(bones, slug, anchor);
+        else snowman(bones, anchor);
+
+        geometry.add("bones", bones);
+        geometries.add(geometry);
+        root.add("minecraft:geometry", geometries);
+        return root;
+    }
+
+    private static void reindeer(JsonArray bones, String slug, double[] anchor) {
+        String prefix = slug.startsWith("pet_") ? "pet" : "reindeer";
+        double ax = anchor[0];
+        double ay = anchor[1];
+        double az = anchor[2];
+
+        bones.add(bone(prefix + "_root", "body", anchor));
+
+        double[] torso = {ax, ay + 4.6, az + 0.4};
+        JsonArray torsoCubes = new JsonArray();
+        blob(torsoCubes, torso[0], torso[1], torso[2], 2.05, 1.85, 3.0, 0.92, PAL_BODY);
+        JsonObject torsoBone = bone(prefix + "_torso", prefix + "_root", torso);
+        torsoBone.add("cubes", torsoCubes);
+        bones.add(torsoBone);
+
+        double[] tail = {ax, ay + 4.9, az + 3.25};
+        JsonArray tailCubes = new JsonArray();
+        blob(tailCubes, tail[0], tail[1], tail[2], 0.72, 0.9, 0.62, 0.52, PAL_BODY);
+        JsonObject tailBone = bone(prefix + "_tail", prefix + "_torso", tail);
+        tailBone.add("cubes", tailCubes);
+        bones.add(tailBone);
+
+        double[] neck = {ax, ay + 6.7, az - 1.85};
+        JsonArray neckCubes = new JsonArray();
+        blob(neckCubes, neck[0], neck[1], neck[2], 1.25, 1.6, 1.3, 0.78, PAL_BODY);
+        JsonObject neckBone = bone(prefix + "_neck", prefix + "_torso", neck);
+        neckBone.add("cubes", neckCubes);
+        bones.add(neckBone);
+
+        double[] head = {ax, ay + 8.7, az - 2.8};
+        JsonArray headCubes = new JsonArray();
+        blob(headCubes, head[0], head[1], head[2], 1.5, 1.4, 1.8, 0.7, PAL_BODY);
+        blob(headCubes, ax, ay + 8.15, az - 4.1, 0.78, 0.62, 0.88, 0.6, PAL_BODY_LIGHT);
+        blob(headCubes, ax + 1.42, ay + 9.6, az - 2.5, 0.4, 0.62, 0.5, 0.48, PAL_BODY);
+        blob(headCubes, ax - 1.42, ay + 9.6, az - 2.5, 0.4, 0.62, 0.5, 0.48, PAL_BODY);
+        shadedCube(headCubes, ax + 0.45, ay + 8.9, az - 4.95, 0.52, 0.5, 0.36, PAL_EYE);
+        shadedCube(headCubes, ax - 0.97, ay + 8.9, az - 4.95, 0.52, 0.5, 0.36, PAL_EYE);
+        shadedCube(headCubes, ax - 0.3, ay + 6.35, az - 3.35, 0.6, 0.55, 0.5, PAL_GOLD);
+        JsonObject headBone = bone(prefix + "_head", prefix + "_neck", head);
+        headBone.add("cubes", headCubes);
+        bones.add(headBone);
+
+        double[] nose = {ax, ay + 8.1, az - 4.75};
+        JsonArray noseCubes = new JsonArray();
+        shadedCube(noseCubes, nose[0] - 0.34, nose[1] - 0.34, az - 5.1, 0.68, 0.68, 0.62, PAL_NOSE);
+        JsonObject noseBone = bone("nose_glow15", prefix + "_head", nose);
+        noseBone.add("cubes", noseCubes);
+        bones.add(noseBone);
+
+        JsonArray left = new JsonArray();
+        chain(left, ax - 1.0, ay + 9.7, az - 2.5, -1.0, 3.3, 0.4, 7, 0.58, 0.3, PAL_ANTLER);
+        chain(left, ax - 1.65, ay + 11.2, az - 2.4, -1.1, 0.9, -0.6, 4, 0.4, 0.24, PAL_ANTLER);
+        JsonObject leftBone = bone("antler_left", prefix + "_head", new double[] {ax - 1.0, ay + 9.7, az - 2.5});
+        leftBone.add("cubes", left);
+        bones.add(leftBone);
+
+        JsonArray right = new JsonArray();
+        chain(right, ax + 1.0, ay + 9.7, az - 2.5, 1.0, 3.3, 0.4, 7, 0.58, 0.3, PAL_ANTLER);
+        chain(right, ax + 1.65, ay + 11.2, az - 2.4, 1.1, 0.9, -0.6, 4, 0.4, 0.24, PAL_ANTLER);
+        JsonObject rightBone = bone("antler_right", prefix + "_head", new double[] {ax + 1.0, ay + 9.7, az - 2.5});
+        rightBone.add("cubes", right);
+        bones.add(rightBone);
+
+        String[][] legs = {
+            {"leg_front_left", "1", "-1.85"}, {"leg_front_right", "-1", "-1.85"},
+            {"leg_back_left", "1", "1.95"}, {"leg_back_right", "-1", "1.95"},
+        };
+        for (String[] leg : legs) {
+            double lx = ax + 1.15 * Double.parseDouble(leg[1]);
+            double lz = az + Double.parseDouble(leg[2]);
+            JsonArray legCubes = new JsonArray();
+            limb(legCubes, lx, lz, ay + 3.5, ay + 0.45, 0.64, 0.44, PAL_BODY, PAL_HOOF);
+            JsonObject legBone = bone(leg[0], prefix + "_torso", new double[] {lx, ay + 2.6, lz});
+            legBone.add("cubes", legCubes);
+            bones.add(legBone);
+        }
+    }
+
+    private static void snowman(JsonArray bones, double[] anchor) {
+        double ax = anchor[0];
+        double ay = anchor[1];
+        double az = anchor[2];
+
+        bones.add(bone("snowman_root", "body", anchor));
+
+        JsonArray baseCubes = new JsonArray();
+        blob(baseCubes, ax, ay + 2.25, az, 2.25, 2.1, 2.25, 0.92, PAL_SNOW);
+        JsonObject baseBone = bone("snow_base", "snowman_root", new double[] {ax, ay + 2.25, az});
+        baseBone.add("cubes", baseCubes);
+        bones.add(baseBone);
+
+        JsonArray torsoCubes = new JsonArray();
+        blob(torsoCubes, ax, ay + 5.9, az, 1.75, 1.65, 1.75, 0.82, PAL_SNOW);
+        for (int i = 0; i < 3; i++) {
+            shadedCube(torsoCubes, ax - 0.24, ay + 5.25 + i * 1.0, az - 1.9, 0.48, 0.48, 0.34, PAL_EYE);
+        }
+        shadedCube(torsoCubes, ax - 1.9, ay + 7.15, az - 1.0, 3.8, 0.42, 2.0, PAL_RED);
+        JsonObject torsoBone = bone("snow_torso", "snow_base", new double[] {ax, ay + 5.9, az});
+        torsoBone.add("cubes", torsoCubes);
+        bones.add(torsoBone);
+
+        JsonArray headCubes = new JsonArray();
+        blob(headCubes, ax, ay + 8.7, az, 1.4, 1.4, 1.4, 0.68, PAL_SNOW);
+        for (double side : new double[] {-0.55, 0.55}) {
+            shadedCube(headCubes, ax + side - 0.17, ay + 9.05, az - 1.52, 0.34, 0.34, 0.34, PAL_EYE);
+        }
+        chain(headCubes, ax, ay + 8.55, az - 1.3, 0, -0.14, -1.3, 4, 0.46, 0.22, PAL_GOLD);
+        JsonObject headBone = bone("snow_head", "snow_torso", new double[] {ax, ay + 8.7, az});
+        headBone.add("cubes", headCubes);
+        bones.add(headBone);
+
+        JsonArray hatCubes = new JsonArray();
+        shadedCube(hatCubes, ax - 1.6, ay + 10.0, az - 1.6, 3.2, 0.42, 3.2, PAL_HOOF + 1);
+        shadedCube(hatCubes, ax - 1.05, ay + 10.4, az - 1.05, 2.1, 1.9, 2.1, PAL_HOOF);
+        JsonObject hatBone = bone("top_hat", "snow_head", new double[] {ax, ay + 10.2, az});
+        hatBone.add("cubes", hatCubes);
+        bones.add(hatBone);
+
+        JsonArray leftArm = new JsonArray();
+        chain(leftArm, ax + 1.6, ay + 6.45, az, 1.5, 0.35, 0, 4, 0.36, 0.24, PAL_WOOD);
+        JsonObject leftArmBone = bone("arm_left", "snow_torso", new double[] {ax + 1.6, ay + 6.45, az});
+        leftArmBone.add("cubes", leftArm);
+        bones.add(leftArmBone);
+
+        JsonArray rightArm = new JsonArray();
+        chain(rightArm, ax - 1.94, ay + 6.45, az, -1.5, 0.35, 0, 4, 0.36, 0.24, PAL_WOOD);
+        JsonObject rightArmBone = bone("arm_right", "snow_torso", new double[] {ax - 1.94, ay + 6.45, az});
+        rightArmBone.add("cubes", rightArm);
+        bones.add(rightArmBone);
     }
 
     // =====================================================================================
