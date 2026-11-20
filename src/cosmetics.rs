@@ -12,10 +12,11 @@
 use std::{
     collections::HashMap,
     path::{Path as FsPath, PathBuf},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
 };
 
 use axum::{
+    body::Bytes,
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -52,11 +53,12 @@ struct Item {
     kind: String,
     name: String,
     slots: Vec<String>,
-    /// El zip que descarga el cliente (geometria + animacion + textura).
-    archive: Vec<u8>,
+    /// El zip que descarga el cliente (geometria + animacion + textura). `Bytes` para que
+    /// cada descarga sea un clon barato del mismo buffer y no una copia.
+    archive: Bytes,
     hash: String,
     /// Textura suelta, para la miniatura (`cover_url`).
-    cover: Vec<u8>,
+    cover: Bytes,
 }
 
 #[derive(Default)]
@@ -148,7 +150,7 @@ fn load_catalog(root: &FsPath) -> Catalog {
         }
         files.push((format!("{}.png", entry.slug), cover.clone()));
 
-        let archive = zip_stored(&files);
+        let archive = Bytes::from(zip_stored(&files));
         let hash = hex::encode(Sha256::digest(&archive));
 
         let id = FIRST_ID + catalog.items.len() as u32;
@@ -160,7 +162,7 @@ fn load_catalog(root: &FsPath) -> Catalog {
             slots: entry.slots.clone(),
             archive,
             hash,
-            cover,
+            cover: Bytes::from(cover),
         });
     }
     catalog
@@ -209,9 +211,60 @@ fn groups_json(origin: &str) -> Vec<Value> {
         .collect()
 }
 
+/// El catalogo es el mismo para todos los jugadores y no cambia mientras el proceso vive,
+/// asi que se serializa una vez por origen y las siguientes peticiones devuelven el buffer tal
+/// cual (cero construccion de JSON, cero copias).
+fn catalog_body(origin: &str) -> Bytes {
+    static CACHE: OnceLock<Mutex<HashMap<String, Bytes>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+    if let Some(hit) = cache.lock().ok().and_then(|guard| guard.get(origin).cloned()) {
+        return hit;
+    }
+
+    let body = serde_json::to_vec(&json!({ "cosmetics": groups_json(origin) }))
+        .map(Bytes::from)
+        .unwrap_or_default();
+    if let Ok(mut guard) = cache.lock() {
+        // El origen depende del Host: se acota para que nadie llene la memoria con cabeceras.
+        if guard.len() < 4 {
+            guard.insert(origin.to_string(), body.clone());
+        }
+    }
+    body
+}
+
+fn catalog_etag(body: &Bytes) -> String {
+    let digest = Sha256::digest(body);
+    format!("\"{}\"", hex::encode(&digest[..8]))
+}
+
 async fn list_catalog(headers: HeaderMap) -> Response {
     let origin = request_origin(&headers);
-    Json(json!({ "cosmetics": groups_json(&origin) })).into_response()
+    let body = catalog_body(&origin);
+    let etag = catalog_etag(&body);
+
+    let not_modified = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim() == etag)
+        .unwrap_or(false);
+    if not_modified {
+        return StatusCode::NOT_MODIFIED.into_response();
+    }
+
+    let mut response = (
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        body,
+    )
+        .into_response();
+    if let Ok(value) = axum::http::HeaderValue::from_str(&etag) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
+    response
 }
 
 async fn view_cosmetic(Path(id): Path<u32>, headers: HeaderMap) -> Response {
@@ -307,13 +360,19 @@ async fn player_cosmetics(State(state): State<AppState>, headers: HeaderMap) -> 
     let profile = profile_key(&headers);
     let equipped = load_equipped(&state, &profile).await;
     // Todo el catalogo esta disponible: no hay tienda ni compras.
-    Json(json!({
+    let mut response = Json(json!({
         "cosmetics": groups_json(&origin),
         "emotes": [],
         "equipped": equipped,
         "particle_color": null,
     }))
-    .into_response()
+    .into_response();
+    // Lleva lo equipado de un jugador concreto: nunca se cachea en proxies.
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
+    response
 }
 
 async fn set_player_cosmetics(
