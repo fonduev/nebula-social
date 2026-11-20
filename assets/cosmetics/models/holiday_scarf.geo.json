@@ -1,0 +1,55 @@
+{
+  "format_version": "1.12.0",
+  "minecraft:geometry": [
+    {
+      "description": {
+        "identifier": "geometry.holiday_scarf",
+        "texture_width": 64,
+        "texture_height": 64,
+        "visible_bounds_width": 3,
+        "visible_bounds_height": 3,
+        "visible_bounds_offset": [0, 1.5, 0]
+      },
+      "bones": [
+        {
+          "name": "head",
+          "pivot": [0, 24, 0]
+        },
+        {
+          "name": "scarf_collar",
+          "parent": "head",
+          "pivot": [0, 24, 0],
+          "cubes": [
+            {"origin": [-4.5, 22.0, -4.5], "size": [9.0, 2.2, 9.0], "uv": [0, 0]}
+          ]
+        },
+        {
+          "name": "scarf_knot",
+          "parent": "scarf_collar",
+          "pivot": [0, 22.8, -4.6],
+          "cubes": [
+            {"origin": [-1.4, 21.6, -5.2], "size": [2.8, 2.4, 1.4], "uv": [0, 15]}
+          ]
+        },
+        {
+          "name": "scarf_tail_left",
+          "parent": "scarf_knot",
+          "pivot": [-0.6, 21.8, -4.8],
+          "cubes": [
+            {"origin": [-1.6, 12.8, -5.0], "size": [2.0, 9.0, 0.8], "uv": [10, 15]},
+            {"origin": [-1.8, 11.2, -5.1], "size": [2.4, 1.6, 1.0], "uv": [16, 15]}
+          ]
+        },
+        {
+          "name": "scarf_tail_right",
+          "parent": "scarf_knot",
+          "pivot": [0.8, 21.8, -4.6],
+          "cubes": [
+            {"origin": [0.0, 15.0, -4.8],  "size": [1.8, 6.8, 0.7], "uv": [24, 15]},
+            {"origin": [-0.2, 13.6, -4.9], "size": [2.2, 1.4, 0.9], "uv": [30, 15]}
+          ]
+        }
+      ]
+    }
+  ]
+}

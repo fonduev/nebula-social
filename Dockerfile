@@ -16,6 +16,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/target/release/nebula-social /usr/local/bin/nebula-social
+# Assets del wardrobe (catalog.json, modelos y texturas por paleta).
+COPY assets ./assets
 # El host inyecta PORT; main.rs escucha en 0.0.0.0:PORT si BIND_ADDR viene vacio.
 ENV RUST_LOG=info
 EXPOSE 8080

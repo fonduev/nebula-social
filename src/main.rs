@@ -1,4 +1,5 @@
 mod auth;
+mod cosmetics;
 mod error;
 mod link_page;
 mod oneclient;
@@ -92,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(oneclient::router())
+        .merge(cosmetics::router())
         .route("/health", get(social::health))
         // Pagina web para aprobar el codigo de vinculacion (la unica superficie web)
         .route("/link", get(link_page::link_page))

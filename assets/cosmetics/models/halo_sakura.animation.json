@@ -1,0 +1,23 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.nebula.halo": {
+      "loop": true,
+      "animation_length": 4.5,
+      "bones": {
+        "halo_ring_glow15": {
+          "position": {
+            "0.0": {"post": [0, 0.0, 0], "lerp_mode": "catmullrom"},
+            "2.25": {"post": [0, 1.2, 0], "lerp_mode": "catmullrom"},
+            "4.5": {"post": [0, 0.0, 0], "lerp_mode": "catmullrom"}
+          },
+          "rotation": {
+            "0.0": {"post": [3, 0, 0], "lerp_mode": "linear"},
+            "2.25": {"post": [-3, 180, 0], "lerp_mode": "linear"},
+            "4.5": {"post": [3, 360, 0], "lerp_mode": "linear"}
+          }
+        }
+      }
+    }
+  }
+}

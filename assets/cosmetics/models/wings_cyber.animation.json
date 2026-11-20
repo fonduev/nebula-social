@@ -1,0 +1,25 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.nebula.wings": {
+      "loop": true,
+      "animation_length": 2.6,
+      "bones": {
+        "wing_right_glow12": {
+          "rotation": {
+            "0.0": {"post": [4.0, 22.0, -10.0], "lerp_mode": "catmullrom"},
+            "1.3": {"post": [10.0, 40.0, -18.0], "lerp_mode": "catmullrom"},
+            "2.6": {"post": [4.0, 22.0, -10.0], "lerp_mode": "catmullrom"}
+          }
+        },
+        "wing_left_glow12": {
+          "rotation": {
+            "0.0": {"post": [4.0, -22.0, 10.0], "lerp_mode": "catmullrom"},
+            "1.3": {"post": [10.0, -40.0, 18.0], "lerp_mode": "catmullrom"},
+            "2.6": {"post": [4.0, -22.0, 10.0], "lerp_mode": "catmullrom"}
+          }
+        }
+      }
+    }
+  }
+}

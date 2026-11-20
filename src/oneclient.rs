@@ -118,10 +118,11 @@ pub async fn login(
 ) -> impl IntoResponse {
     let name = q.username.unwrap_or_else(|| "FondueETC".to_string());
     let uuid = q.player.unwrap_or_else(|| "b178088f-1f77-4dec-9bc9-8bc9ecefd49d".to_string());
-    state.oneclient.player_names.lock().unwrap().insert(uuid, name);
+    state.oneclient.player_names.lock().unwrap().insert(uuid, name.clone());
 
+    // El token codifica el nombre para que el wardrobe sepa de quien es lo equipado.
     Json(json!({
-        "token": "nebula_oneclient_session_token"
+        "token": format!("nebula.{}", hex::encode(name.as_bytes()))
     }))
 }
 
