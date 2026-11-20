@@ -17,7 +17,10 @@ services:
       # Secreto HMAC compartido con el launcher premium (opcional).
       - key: LAUNCHER_HMAC_SECRET
         sync: false
-      # La pagina /link se construye sola desde RENDER_EXTERNAL_URL.
       # Sin proveedor de correo, el codigo de verificacion vuelve en la respuesta.
       - key: DEV_ECHO_VERIFY_CODE
         value: "1"
+      # Dominio publico del servicio (Custom Domain en Render). Los jugadores abren
+      # esta pagina para crear la cuenta y aprobar el codigo del juego.
+      - key: LINK_BASE_URL
+        value: https://social.nebuladevstudios.com/link
