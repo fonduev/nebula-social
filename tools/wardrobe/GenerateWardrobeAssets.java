@@ -731,8 +731,13 @@ public final class GenerateWardrobeAssets {
             torsoR * 1.96, 0.44, 0.4, PAL_RED);
         shadedCube(torso, ax - torsoR * 1.04, torsoY + torsoR * 0.72, az - torsoR * 0.4,
             0.42, 0.44, torsoR * 1.3, PAL_RED);
-        shadedCube(torso, ax - 0.36, torsoY + 0.2, az - torsoR * 1.02, 0.72, 1.45, 0.36, PAL_RED);
         addBone(bones, "snow_torso", "snow_base", new double[] {ax, torsoY, az}, torso);
+
+        // La cola de la bufanda cuelga de su propio hueso: la animacion la mece.
+        double scarfY = torsoY + 0.94;
+        JsonArray scarf = new JsonArray();
+        shadedCube(scarf, ax - 0.36, scarfY - 1.68, az - torsoR * 1.02, 0.72, 1.45, 0.36, PAL_RED);
+        addBone(bones, "scarf_tail", "snow_torso", new double[] {ax, scarfY, az - torsoR * 1.02}, scarf);
 
         JsonArray head = new JsonArray();
         blob(head, ax, headY, az, headR, headR, headR, 0.66, PAL_SNOW);
@@ -848,6 +853,16 @@ public final class GenerateWardrobeAssets {
         }
         shadedCube(lid, ax - 0.45, lidY + 0.85, az - 0.45, 0.9, 0.9, 0.9, PAL_GOLD);
         addBone(bones, "box_lid", "box_base", new double[] {ax, lidY, az}, lid);
+
+        // Estrella sorpresa: escondida dentro de la caja, sube cuando la tapa se abre.
+        double starY = ay + 4.0;
+        JsonArray star = new JsonArray();
+        shadedCube(star, ax - 0.34, starY - 0.34, az - 0.26, 0.68, 0.68, 0.52, PAL_GOLD);
+        shadedCube(star, ax - 0.16, starY + 0.3, az - 0.2, 0.32, 0.72, 0.4, PAL_GOLD);
+        shadedCube(star, ax - 0.16, starY - 0.98, az - 0.2, 0.32, 0.72, 0.4, PAL_GOLD);
+        shadedCube(star, ax + 0.32, starY - 0.16, az - 0.2, 0.72, 0.32, 0.4, PAL_GOLD);
+        shadedCube(star, ax - 1.04, starY - 0.16, az - 0.2, 0.72, 0.32, 0.4, PAL_GOLD);
+        addBone(bones, "star_surprise_glow15", "box_base", new double[] {ax, starY, az}, star);
     }
 
     // =====================================================================================
